@@ -19,8 +19,9 @@
 #include <string> 
 #include <iostream>
 #include<cmath>
-cv::Mat imgCallback;
 
+
+cv::Mat imgCallback;
 // int num_pic;
 void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
     // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
