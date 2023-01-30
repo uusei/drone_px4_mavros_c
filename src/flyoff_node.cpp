@@ -3,6 +3,7 @@
  * @brief Offboard control example node, written with MAVROS version 0.19.x, PX4 Pro Flight
  * Stack and tested in Gazebo SITL
  */
+//本版本是绿色杆子采集
 // 引入类 这些东西可以在rostopic 里面找到
 #include <ros/ros.h>
 #include "opencv2/opencv.hpp"
@@ -20,19 +21,24 @@
 #include <iostream>
 #include<cmath>
 
-
+ int num_pic = 0;
 cv::Mat imgCallback;
-// int num_pic;
 void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
     // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
     cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
     imgCallback = cv_ptr->image;
     // cv::imshow("view" , imgCallback);
-    //std::string string_pic = std::to_string(num_pic);
-    //std::string path0="/home/uusei/img/0.jpg";
+    //std::string path0="/home/uusei/img/1.jpg";
     //cv::imwrite(path0, imgCallback);
-    // num_pic++;
     // cv::waitKey(10);
+}
+
+void saveimg(){
+    num_pic++;
+    std::string string_pic = std::to_string(num_pic);
+    std::string path0="/home/uusei/img/green"+string_pic+".jpg";
+    cv::imwrite(path0, imgCallback);
+    cv::waitKey(50);
 }
 // 飞行模式确认
 mavros_msgs::State current_state;
@@ -43,8 +49,23 @@ void state_cb(const mavros_msgs::State::ConstPtr& msg){
 struct imup{
     double px,py,pz,roll, pitch, yaw;
 };
-
 imup imp;
+
+//结构体 绿色杆子位置
+struct bar_g{
+    double px=2;
+    double py=1;
+    double yaw=0;
+};
+bar_g bg;
+
+//结构体 红色杆子位置
+struct bar_r{
+    double px=2;
+    double py=1;
+    double yaw=0;
+};
+bar_r br;
 
 // 转换坐标姿态
 void transpoi(geometry_msgs::PoseStamped current_posi){
@@ -97,14 +118,15 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     transpoi(current_posi);
 }
 //定义标志位
-int flag1,flag2,flag3;
+int flag1,flag2,flag3,flag4,flag5;
 
 int main(int argc, char **argv)
 {
     flag1=1;
     flag2=0;
     flag3=0;
-
+    flag4=0;
+    flag5=0;
     ros::init(argc, argv, "offb_node");
     ros::NodeHandle nh;
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
@@ -190,12 +212,13 @@ int main(int argc, char **argv)
         {
             ROS_INFO("pos_init");           
             // raw_data.coordinate_frame = 8;  //flu坐标系
-            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512 + 1024 /*+ 2048*/ ;
+            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
             raw_data.position.z= 1.5;
+            raw_data.yaw =0; 
             last_request = ros::Time::now();
-            if((fabs(imp.px-raw_data.position.x)<0.02) && (fabs(imp.py-raw_data.position.y)<0.02)){
+            if((fabs(imp.px-raw_data.position.x)<0.03) && (fabs(imp.py-raw_data.position.y)<0.03)){
                 ROS_INFO("init successed"); 
                 flag1 = 0;
                 flag2 = 1;
@@ -207,26 +230,64 @@ int main(int argc, char **argv)
             ROS_INFO("pos1");
             // raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= 1;
+            raw_data.position.x= 0;
             raw_data.position.y= 1;
             raw_data.position.z= 1.5;
-            // raw_data.velocity.y = 0.5;
-            raw_data.yaw =1.57; 
+            raw_data.yaw =0; 
             last_request = ros::Time::now(); 
             //ROS_INFO("yaw:%f",imp.yaw);
             //ROS_INFO("x:%f",imp.px);
             // 闭环校正位置
-            if(fabs(imp.px-raw_data.position.x)<0.02 && fabs(imp.py-raw_data.position.y)<0.02 && fabs(imp.yaw-raw_data.yaw)<0.02){
+            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                saveimg();
                 ROS_INFO("pos1 successed"); 
                 flag2 = 0;
                 flag3 = 1; 
             }
         }
-        //降落
-         if ( ros::Time::now()-last_request>ros::Duration(1) && flag3==1)
+        //飞到第3点
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag3==1)
         {
+            ROS_INFO("pos2");
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= 1.4;
+            raw_data.position.y= 1;
+            raw_data.position.z= 1.5;
+            raw_data.yaw =0; 
             last_request = ros::Time::now();
-            break;
+            //break;
+            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                saveimg();
+                ROS_INFO("pos2 successed"); 
+                flag3 = 0;
+                flag4=  1; 
+            }
+        }
+        // 旋转
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag4==1)
+        {
+            ROS_INFO("pos r");
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= bg.px-0.6*std::cos(bg.yaw);
+            raw_data.position.y= bg.py-0.6*std::sin(bg.yaw);
+            raw_data.position.z= 1.5;
+            if (bg.yaw<=M_PI){raw_data.yaw = bg.yaw; }
+            else{raw_data.yaw = bg.yaw-2*M_PI;}
+
+            last_request = ros::Time::now();
+            ROS_INFO("sinyaw:%f",bg.yaw);
+            //break;
+            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                saveimg();
+                ROS_INFO("pos r successed"); 
+                if(bg.yaw>(M_PI*2)){
+                    flag4=  0; 
+                    flag1=  1;
+                    bg.yaw=0;
+                }else{
+                    bg.yaw=bg.yaw+M_PI/4;
+                }
+            }
         }
         raw_local_pub.publish(raw_data);
         ros::spinOnce();
