@@ -3,7 +3,6 @@
  * @brief Offboard control example node, written with MAVROS version 0.19.x, PX4 Pro Flight
  * Stack and tested in Gazebo SITL
  */
-//本版本是绿色杆子采集
 // 引入类 这些东西可以在rostopic 里面找到
 #include <ros/ros.h>
 #include "opencv2/opencv.hpp"
@@ -16,41 +15,22 @@
 #include "sensor_msgs/image_encodings.h"
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/types_c.h>
+#include <opencv2/imgproc.hpp>
 #include <cv_bridge/cv_bridge.h>
 #include <string> 
 #include <iostream>
 #include<cmath>
+#include <vector>
+#include <ctime>
 
- int num_pic = 0;
-cv::Mat imgCallback;
-void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
-    // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
-    cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-    imgCallback = cv_ptr->image;
-    // cv::imshow("view" , imgCallback);
-    //std::string path0="/home/uusei/img/1.jpg";
-    //cv::imwrite(path0, imgCallback);
-    // cv::waitKey(10);
-}
-
-void saveimg(){
-    num_pic++;
-    std::string string_pic = std::to_string(num_pic);
-    std::string path0="/home/uusei/img/green"+string_pic+".jpg";
-    cv::imwrite(path0, imgCallback);
-    cv::waitKey(50);
-}
-// 飞行模式确认
-mavros_msgs::State current_state;
-void state_cb(const mavros_msgs::State::ConstPtr& msg){
-    current_state = *msg;
-}
+//定义标志位
+int flag1,flag2,flag3,flag4,flag5;
 //当前imu位姿态 精确度4位 调用方法举例:imp.px
 struct imup{
     double px,py,pz,roll, pitch, yaw;
 };
 imup imp;
-
 //结构体 绿色杆子位置
 struct bar_g{
     double px=2;
@@ -58,7 +38,6 @@ struct bar_g{
     double yaw=0;
 };
 bar_g bg;
-
 //结构体 红色杆子位置
 struct bar_r{
     double px=2;
@@ -67,6 +46,92 @@ struct bar_r{
 };
 bar_r br;
 
+cv::Mat imgCallback;
+struct info_img{
+    int width;
+    int height;
+    double dist;
+};
+info_img ig;
+void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
+    // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
+    cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
+    imgCallback = cv_ptr->image;
+}
+ int num_pic = 0;
+// 图像处理
+
+void img_process(){
+    //clock_t begin, end;
+    //begin = clock();
+    cv::Mat kernel;
+    cv::Mat hsv,hsv0,hsv1,mask,res,gray,opened;
+
+    std::vector<std::vector<cv::Point>> contours;
+    std::vector<std::vector<cv::Point>> cnts;  
+    std::vector<cv::Vec4i> hier; 
+
+    imgCallback = imgCallback(cv::Range(40,400),cv::Range::all());
+    ig.width = imgCallback.cols;
+    ig.height = imgCallback.rows;
+    // red mask
+    cv::cvtColor(imgCallback, hsv, CV_BGR2HSV);
+    cv::inRange(hsv, cv::Scalar(0, 220, 80),cv::Scalar(5, 255, 115),hsv0);
+    cv::inRange(hsv, cv::Scalar(175, 220, 80), cv::Scalar(180, 255, 115),hsv1);
+    cv::bitwise_or(hsv0, hsv1,mask);
+    cv::bitwise_and(imgCallback, imgCallback, res, mask=mask);
+    cv::blur(res, res,cv::Size(5, 5));
+    //  二值化
+    cv::threshold(res, res, 10, 255, CV_THRESH_BINARY);
+    cv::cvtColor(res, gray, CV_BGR2GRAY);
+    // 去噪点 这里编译不通过 直接代替源码数值
+    kernel = cv::getStructuringElement(0, cv::Size(5, 5));
+    cv::morphologyEx(gray,opened, 3, kernel);
+    cv::morphologyEx(opened,opened, 3, kernel);
+    // 边缘检测
+    cv::findContours(opened,cnts,hier,CV_RETR_EXTERNAL,CV_CHAIN_APPROX_SIMPLE);
+    contours.resize(cnts.size());
+    cv::imwrite("/home/uusei/img/0.jpg", opened);
+    for( int k = 0; k < cnts.size(); k++ )
+    {
+        cv::Rect  rect = cv::boundingRect(cnts.at(k));
+        if ((cv::contourArea(cnts.at(k)) >= 480) && (cv::contourArea(cnts.at(k)) <= 18000) && (rect.width >= 3)&& (rect.width <= 90)){
+            contours.push_back(cnts.at(k));
+        }
+    }
+    for( int k = 0; k < cnts.size(); k++ )
+    {
+        cv::Rect  rect = cv::boundingRect(cnts.at(k));
+        int r_x = rect.x + rect.width/2;
+        int r_y = rect.y + rect.height/2;
+        double wide = 0;
+        for( int i = 0; i < rect.width; i++ ){
+            for( int j = 0; j < 10; j++ ){
+                if (( imgCallback.at<cv::Vec3i>(r_y+j,i+rect.x)[0] <= 35) && ( imgCallback.at<cv::Vec3i>(r_y+j,i+rect.x)[1]<= 35))
+                    wide += 1;
+            }
+        }
+        wide = wide / 10;
+        ig.dist = wide;
+    } 
+    //end = clock();
+    //std::cout << "所用时间" << double(end - begin) / CLOCKS_PER_SEC * 1000 << "ms" << std::endl;       
+}
+// 保存图片
+void saveimg(){
+    num_pic++;
+    img_process();
+    std::string string_pic = std::to_string(num_pic);
+    std::string path0="/home/uusei/img/red"+string_pic+".jpg";
+    cv::imwrite(path0, imgCallback);
+    cv::waitKey(50);
+}
+
+// 飞行模式确认
+mavros_msgs::State current_state;
+void state_cb(const mavros_msgs::State::ConstPtr& msg){
+    current_state = *msg;
+}
 // 转换坐标姿态
 void transpoi(geometry_msgs::PoseStamped current_posi){
     // 实例化角度
@@ -117,8 +182,6 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     */
     transpoi(current_posi);
 }
-//定义标志位
-int flag1,flag2,flag3,flag4,flag5;
 
 int main(int argc, char **argv)
 {
@@ -218,7 +281,7 @@ int main(int argc, char **argv)
             raw_data.position.z= 1.5;
             raw_data.yaw =0; 
             last_request = ros::Time::now();
-            if((fabs(imp.px-raw_data.position.x)<0.03) && (fabs(imp.py-raw_data.position.y)<0.03)){
+            if((fabs(imp.px-raw_data.position.x)<0.04) && (fabs(imp.py-raw_data.position.y)<0.04)){
                 ROS_INFO("init successed"); 
                 flag1 = 0;
                 flag2 = 1;
@@ -238,7 +301,7 @@ int main(int argc, char **argv)
             //ROS_INFO("yaw:%f",imp.yaw);
             //ROS_INFO("x:%f",imp.px);
             // 闭环校正位置
-            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
                 saveimg();
                 ROS_INFO("pos1 successed"); 
                 flag2 = 0;
@@ -264,28 +327,27 @@ int main(int argc, char **argv)
             }
         }
         // 旋转
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag4==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag4==1)
         {
             ROS_INFO("pos r");
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= bg.px-0.6*std::cos(bg.yaw);
-            raw_data.position.y= bg.py-0.6*std::sin(bg.yaw);
+            raw_data.position.x= br.px-0.6*std::cos(br.yaw);
+            raw_data.position.y= br.py-0.6*std::sin(br.yaw);
             raw_data.position.z= 1.5;
-            if (bg.yaw<=M_PI){raw_data.yaw = bg.yaw; }
-            else{raw_data.yaw = bg.yaw-2*M_PI;}
-
+            if (br.yaw<=M_PI){raw_data.yaw = br.yaw; }
+            else{raw_data.yaw = br.yaw-2*M_PI;}
             last_request = ros::Time::now();
-            ROS_INFO("sinyaw:%f",bg.yaw);
+            
             //break;
             if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
                 saveimg();
                 ROS_INFO("pos r successed"); 
-                if(bg.yaw>(M_PI*2)){
-                    flag4=  0; 
-                    flag1=  1;
-                    bg.yaw=0;
+                ROS_INFO("dist:%f",ig.dist);
+                if(br.yaw>(M_PI*2)){
+                    break;
+                    br.yaw=0;
                 }else{
-                    bg.yaw=bg.yaw+M_PI/4;
+                    br.yaw=br.yaw+M_PI/18;
                 }
             }
         }
@@ -295,15 +357,15 @@ int main(int argc, char **argv)
     }
     // 降落步骤
     while(ros::ok()){
-        if ( ros::Time::now()-last_request>ros::Duration(5) && flag3==1)
+        if ( ros::Time::now()-last_request>ros::Duration(5) )
         {
             offb_set_mode.request.custom_mode = "AUTO.LAND";
             if( set_mode_client.call(offb_set_mode) &&
                 offb_set_mode.response.mode_sent){
                 ROS_INFO("LAND");
-                flag3 = 0;
-            }
+            }    
             last_request = ros::Time::now();
+            return 0;
         }
         ros::spinOnce();
         rate.sleep();
