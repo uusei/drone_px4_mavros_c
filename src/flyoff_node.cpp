@@ -26,6 +26,7 @@
 
 //定义标志位
 int flag1,flag2,flag3,flag4,flag5;
+ int num_pic = 0;
 //当前imu位姿态 精确度4位 调用方法举例:imp.px
 struct imup{
     double px,py,pz,roll, pitch, yaw;
@@ -53,26 +54,7 @@ struct info_img{
     double dist;
 };
 info_img ig;
-// 计算距离
-double calculate_dist(double origin_x,double origin_y,double target_x,double target_y){
-    double dist;
-    double l_x,l_y;
-    l_x = target_x-origin_x;
-    l_y = target_y-origin_y;
-    dist = sqrt(l_x*l_x+l_y*l_y);
-    return dist;
-}
-//线性规划验证 两种
-double linear_dep(double y,double x,double k,double b){
-    double arg;
-    arg = y - k*x -b;
-    return arg;
-}
-double linear_depx(double x,double b){
-    double arg;
-    arg = x -b;
-    return arg;
-}
+
 // 路径规划 存储k值和相关信息
 struct info_point{
     double kp;
@@ -95,6 +77,26 @@ info_point ifp;
 */
 std::vector<double> cross_point,path_line,line_resist;
 std::vector<std::vector<double>> path_point,path_resist;
+// 计算距离
+double calculate_dist(double origin_x,double origin_y,double target_x,double target_y){
+    double dist;
+    double l_x,l_y;
+    l_x = target_x-origin_x;
+    l_y = target_y-origin_y;
+    dist = sqrt(l_x*l_x+l_y*l_y);
+    return dist;
+}
+//线性规划验证 两种
+double linear_dep(double y,double x,double k,double b){
+    double arg;
+    arg = y - k*x -b;
+    return arg;
+}
+double linear_depx(double x,double b){
+    double arg;
+    arg = x -b;
+    return arg;
+}
 // 路径规划 判断行进信息
 int smooth_path(double target_x,double target_y){
     /*
@@ -283,8 +285,6 @@ void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
     cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
     imgCallback = cv_ptr->image;
 }
- int num_pic = 0;
-
 // 图像处理
 void img_process(){
     //clock_t begin, end;
@@ -351,7 +351,6 @@ void saveimg(){
     cv::imwrite(path0, imgCallback);
     cv::waitKey(50);
 }
-
 // 飞行模式确认
 mavros_msgs::State current_state;
 void state_cb(const mavros_msgs::State::ConstPtr& msg){
