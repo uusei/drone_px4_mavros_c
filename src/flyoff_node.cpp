@@ -34,13 +34,13 @@ imup imp;
 //结构体 绿色杆子位置
 struct bar_g{
     double px=2;
-    double py=1;
+    double py=2;
     double yaw=0;
 };
 bar_g bg;
 //结构体 红色杆子位置
 struct bar_r{
-    double px=2;
+    double px=1;
     double py=1;
     double yaw=0;
 };
@@ -53,33 +53,259 @@ struct info_img{
     double dist;
 };
 info_img ig;
+// 计算距离
+double calculate_dist(double origin_x,double origin_y,double target_x,double target_y){
+    double dist;
+    double l_x,l_y;
+    l_x = target_x-origin_x;
+    l_y = target_y-origin_y;
+    dist = sqrt(l_x*l_x+l_y*l_y);
+    return dist;
+}
+//线性规划验证 两种
+double linear_dep(double y,double x,double k,double b){
+    double arg;
+    arg = y - k*x -b;
+    return arg;
+}
+double linear_depx(double x,double b){
+    double arg;
+    arg = x -b;
+    return arg;
+}
+// 路径规划 存储k值和相关信息
+struct info_point{
+    double kp;
+    //这里true的话 就定义为x轴平行 后面直接简单避障
+    bool is_x=false;
+    //这里true的话 就定义为y轴平行 后面直接简单避障
+    bool is_y=false;
+    double dist_rb;
+    double dist_gb;
+    double dist_dd;
+};
+info_point ifp;
+// cross_point.clear(); 清除向量内容
+/*
+    1.path_point 无人机路径点
+    2.path_resist 障碍物点
+    3.cross_point 待选择的距离
+    通过障碍物点确定路径点
+    比较选择最小距离
+*/
+std::vector<double> cross_point,path_line,line_resist;
+std::vector<std::vector<double>> path_point,path_resist;
+// 路径规划 判断行进信息
+int smooth_path(double target_x,double target_y){
+    /*
+    返回值说明: 最终使用switch case 语句进行下一步操作
+    0：不能走
+    1：直接走
+    2:   需要避障
+    */
+    // 定义参数
+    double k,b;
+    std::vector<int> direction_d,direction_br,direction_bg;
+    path_resist.clear();
+    // y-kx-b 在 [-0.4,0.4]的范围内
+    if (fabs(target_x-imp.px)<0.03){
+        ifp.is_y = true;
+        ifp.is_x = false;
+    }else if(fabs(target_y-imp.py)<0.03){
+        ifp.is_y = false;
+        ifp.is_x = true;
+    }else{
+        ifp.is_y = false;
+        ifp.is_x = false;
+        k=(target_y-imp.py)/(target_x-imp.px);
+        b=target_y-k*target_x;
+        ifp.kp=1/k;
+    }
+    // 距离测算
+    ifp.dist_rb=calculate_dist(br.px, br.py, imp.px, imp.py);
+    ifp.dist_gb=calculate_dist(bg.px, bg.py, imp.px, imp.py);
+    ifp.dist_dd=calculate_dist(target_x, target_y, imp.px, imp.py);
+    // 方向判断
+    int dy=(target_y-imp.py)>0;
+    int dx=(target_x-imp.px)>0;
+    direction_d.push_back(dx);
+    direction_d.push_back(dy);
+    int ry=(br.py-imp.py)>0;
+    int rx=(br.px-imp.px)>0;
+    direction_br.push_back(rx);
+    direction_br.push_back(ry);
+    int gy=(bg.py-imp.py)>0;
+    int gx=(bg.px-imp.px)>0;
+    direction_bg.push_back(gx);
+    direction_bg.push_back(gy);
+    //三种情况  避障 直接走 不可走
+    if((calculate_dist(br.px, br.py, target_x, target_y)<=0.45)||(calculate_dist(bg.px, bg.py, target_x, target_y)<=0.45)){
+        // 不可以走 会撞到
+        std::cout<<"there is no way to the point.it cause issue"<<std::endl;
+        return 0;
+    }
+    if((direction_d==direction_br)&&(direction_d!=direction_bg)){
+        line_resist.clear();
+        line_resist.push_back(br.px);
+        line_resist.push_back(br.py);
+        path_resist.push_back(line_resist);
+    }else if((direction_d!=direction_br)&&(direction_d==direction_bg)){
+        line_resist.clear();
+        line_resist.push_back(bg.px);
+        line_resist.push_back(bg.py);
+        path_resist.push_back(line_resist);
+    }else if((direction_d==direction_br)&&(direction_d==direction_bg)){
+        line_resist.clear();
+        if(ifp.dist_rb>=ifp.dist_gb){
+            line_resist.push_back(bg.px);
+            line_resist.push_back(bg.py);
+            path_resist.push_back(line_resist);
+            line_resist.clear();
+            line_resist.push_back(br.px);
+            line_resist.push_back(br.py);
+            path_resist.push_back(line_resist);
+        }else{
+            line_resist.push_back(br.px);
+            line_resist.push_back(br.py);
+            path_resist.push_back(line_resist);
+            line_resist.clear();
+            line_resist.push_back(bg.px);
+            line_resist.push_back(bg.py);
+            path_resist.push_back(line_resist);
+        }
+    }
+    if(path_resist.empty()){
+        std::cout<<"go through directly"<<std::endl;
+        return 1;
+    }else{
+        std::cout<<"need calcaluted"<<std::endl;
+        return 2;
+    }
+}
+
+// 路径规划 规划途径障碍物的路径点  圆心为障碍物坐标
+void set_path(double x_0,double y_0){
+    /*  
+    输入圆心坐标 k值在结构体里面
+    直线与圆的交点，反求出两个路径点 比较使用前面的距离计算函数
+    */
+    double bp,delta,ao,bo,co,solve_x0,solve_x1,solve_y0,solve_y1;
+    // 求解二次方程的解集
+    bp = y_0-ifp.kp*x_0;
+    ao=1+ ifp.kp*ifp.kp;//a 大于1 不用担心被除
+    bo=ifp.kp*(bp-y_0);
+    co=x_0*x_0+(bp-y_0)*(bp-y_0)-0.25;
+    delta = bo*bo-4*ao*co;
+    solve_x0 = (-bo+sqrt(delta))/2*ao;
+    solve_x1 = (-bo-sqrt(delta))/2*ao;
+    solve_y0 = ifp.kp*solve_x0+bp;
+    solve_y1 = ifp.kp*solve_x1+bp;
+    cross_point.clear();
+    cross_point.push_back(solve_x0);
+    cross_point.push_back(solve_y0);
+    cross_point.push_back(solve_x1);
+    cross_point.push_back(solve_y1);
+}
+//路径规划 最终封包
+int select_path(double x,double y){
+    path_line.clear();
+    path_point.clear();
+    switch(smooth_path(2,1)){
+        case 0:                  
+            path_line.push_back(0);
+            path_line.push_back(1);
+            path_point.push_back(path_line);
+            break;
+        case 1:
+            path_line.push_back(2);
+            path_line.push_back(1);
+            path_point.push_back(path_line);
+            break;
+        case 2:
+            if(ifp.is_y){
+                for(int i=0;i<path_resist.size();i++){
+                    double cd_p0= calculate_dist(path_resist[i][0]+0.5,path_resist[i][1],imp.px,imp.py);
+                    double cd_p1= calculate_dist(path_resist[i][0]-0.5,path_resist[i][1],imp.px,imp.py);
+                    if(cd_p0<=cd_p1){
+                        path_line.clear();
+                        path_line.push_back(path_resist[i][0]+0.5);
+                        path_line.push_back(path_resist[i][1]);
+                        path_point.push_back(path_line);
+                    }else{
+                        path_line.clear();
+                        path_line.push_back(path_resist[i][0]);
+                        path_line.push_back(path_resist[i][1]-0.5);
+                        path_point.push_back(path_line);
+                    }            
+                }
+            }else if(ifp.is_x){
+                for(int i=0;i<path_resist.size();i++){
+                    double cd_p0= calculate_dist(path_resist[i][0],path_resist[i][1]+0.5,imp.px,imp.py);
+                    double cd_p1= calculate_dist(path_resist[i][0],path_resist[i][1]-0.5,imp.px,imp.py);
+                    if(cd_p0<=cd_p1){
+                        path_line.clear();
+                        path_line.push_back(path_resist[i][0]);
+                        path_line.push_back(path_resist[i][1]+0.5);
+                        path_point.push_back(path_line);
+                    }else{
+                        path_line.clear();
+                        path_line.push_back(path_resist[i][0]);
+                        path_line.push_back(path_resist[i][1]-0.5);
+                        path_point.push_back(path_line);
+                    }            
+                }
+            }else{
+                for(int i=0;i<path_resist.size();i++){
+                    set_path(path_resist[i][0],path_resist[i][1]);
+                    double cd_p0= calculate_dist(cross_point[0],cross_point[1],imp.px,imp.py);
+                    double cd_p1= calculate_dist(cross_point[2],cross_point[3],imp.px,imp.py);
+                    if(cd_p0<=cd_p1){
+                        path_line.clear();
+                        path_line.push_back(cross_point[0]);
+                        path_line.push_back(cross_point[1]);
+                        path_point.push_back(path_line);
+                    }else{
+                        path_line.clear();
+                        path_line.push_back(cross_point[2]);
+                        path_line.push_back(cross_point[3]);
+                        path_point.push_back(path_line);
+                    }            
+                }                 
+            }
+            std::cout<<"calcaluted fin"<<std::endl; 
+            break;
+    }
+    return 0;
+}
+
 void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
     // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
     cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
     imgCallback = cv_ptr->image;
 }
  int num_pic = 0;
-// 图像处理
 
+// 图像处理
 void img_process(){
     //clock_t begin, end;
     //begin = clock();
     cv::Mat kernel;
-    cv::Mat hsv,hsv0,hsv1,mask,res,gray,opened;
+    cv::Mat read,hsv,hsv0,hsv1,mask,res,gray,opened;
 
     std::vector<std::vector<cv::Point>> contours;
     std::vector<std::vector<cv::Point>> cnts;  
     std::vector<cv::Vec4i> hier; 
 
     imgCallback = imgCallback(cv::Range(40,400),cv::Range::all());
-    ig.width = imgCallback.cols;
-    ig.height = imgCallback.rows;
+    read = imgCallback;
+    ig.width = read.cols;
+    ig.height = read.rows;
     // red mask
-    cv::cvtColor(imgCallback, hsv, CV_BGR2HSV);
+    cv::cvtColor(read, hsv, CV_BGR2HSV);
     cv::inRange(hsv, cv::Scalar(0, 220, 80),cv::Scalar(5, 255, 115),hsv0);
     cv::inRange(hsv, cv::Scalar(175, 220, 80), cv::Scalar(180, 255, 115),hsv1);
     cv::bitwise_or(hsv0, hsv1,mask);
-    cv::bitwise_and(imgCallback, imgCallback, res, mask=mask);
+    cv::bitwise_and(read, read, res, mask=mask);
     cv::blur(res, res,cv::Size(5, 5));
     //  二值化
     cv::threshold(res, res, 10, 255, CV_THRESH_BINARY);
@@ -107,7 +333,7 @@ void img_process(){
         double wide = 0;
         for( int i = 0; i < rect.width; i++ ){
             for( int j = 0; j < 10; j++ ){
-                if (( imgCallback.at<cv::Vec3i>(r_y+j,i+rect.x)[0] <= 35) && ( imgCallback.at<cv::Vec3i>(r_y+j,i+rect.x)[1]<= 35))
+                if ((read.at<cv::Vec3i>(r_y+j,i+rect.x)[0] <= 35) && (read.at<cv::Vec3i>(r_y+j,i+rect.x)[1]<= 35))
                     wide += 1;
             }
         }
@@ -120,7 +346,6 @@ void img_process(){
 // 保存图片
 void saveimg(){
     num_pic++;
-    img_process();
     std::string string_pic = std::to_string(num_pic);
     std::string path0="/home/uusei/img/red"+string_pic+".jpg";
     cv::imwrite(path0, imgCallback);
@@ -305,18 +530,21 @@ int main(int argc, char **argv)
                 saveimg();
                 ROS_INFO("pos1 successed"); 
                 flag2 = 0;
-                flag3 = 1; 
+                flag3 = 1;
             }
         }
         //飞到第3点
         if ( ros::Time::now()-last_request>ros::Duration(1) && flag3==1)
         {
             ROS_INFO("pos2");
-            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= 1.4;
-            raw_data.position.y= 1;
-            raw_data.position.z= 1.5;
-            raw_data.yaw =0; 
+            path_point.clear();
+            path_line.clear();
+            // 避障情况选择语句 详细说明见smooth_path定义
+            
+
+
+
+            
             last_request = ros::Time::now();
             //break;
             if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
@@ -329,27 +557,26 @@ int main(int argc, char **argv)
         // 旋转
         if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag4==1)
         {
-            ROS_INFO("pos r");
-            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= br.px-0.6*std::cos(br.yaw);
-            raw_data.position.y= br.py-0.6*std::sin(br.yaw);
-            raw_data.position.z= 1.5;
-            if (br.yaw<=M_PI){raw_data.yaw = br.yaw; }
-            else{raw_data.yaw = br.yaw-2*M_PI;}
-            last_request = ros::Time::now();
-            
-            //break;
-            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
-                saveimg();
-                ROS_INFO("pos r successed"); 
-                ROS_INFO("dist:%f",ig.dist);
-                if(br.yaw>(M_PI*2)){
-                    break;
-                    br.yaw=0;
-                }else{
-                    br.yaw=br.yaw+M_PI/18;
-                }
-            }
+            // ROS_INFO("pos r");
+            // raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            // raw_data.position.x= br.px-0.6*std::cos(br.yaw);
+            // raw_data.position.y= br.py-0.6*std::sin(br.yaw);
+            // raw_data.position.z= 1.5;
+            // if (br.yaw<=M_PI){raw_data.yaw = br.yaw; }
+            // else{raw_data.yaw = br.yaw-2*M_PI;}
+            // last_request = ros::Time::now();
+            // break;
+            // if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
+            //     saveimg();
+            //     ROS_INFO("pos r successed"); 
+            //     ROS_INFO("dist:%f",ig.dist);
+            //     if(br.yaw>(M_PI*2)){
+            //         break;
+            //         br.yaw=0;
+            //     }else{
+            //         br.yaw=br.yaw+M_PI/18;
+            //     }
+            // }
         }
         raw_local_pub.publish(raw_data);
         ros::spinOnce();
