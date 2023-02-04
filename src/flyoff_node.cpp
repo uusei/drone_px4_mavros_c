@@ -25,7 +25,7 @@
 #include <ctime>
 
 //定义标志位
-int flag1,flag2,flag3,flag4,flag5;
+int flag1,flag2,flag3,flag4,flag5,flag6,flag7,flag8;
  int num_pic = 0;
 //当前imu位姿态 精确度4位 调用方法举例:imp.px
 struct imup{
@@ -34,8 +34,8 @@ struct imup{
 imup imp;
 //结构体 绿色杆子位置
 struct bar_g{
-    double px=2;
-    double py=2;
+    double px=2.5;
+    double py=1.5;
     double yaw=0;
 };
 bar_g bg;
@@ -77,14 +77,30 @@ info_point ifp;
 */
 std::vector<double> cross_point,path_line,line_resist;
 std::vector<std::vector<double>> path_point,path_resist;
-// 计算距离
+// 计算坐标距离 
 double calculate_dist(double origin_x,double origin_y,double target_x,double target_y){
     double dist;
     double l_x,l_y;
     l_x = target_x-origin_x;
     l_y = target_y-origin_y;
     dist = sqrt(l_x*l_x+l_y*l_y);
+    std::cout<<"cd output dist:"<<dist<<std::endl;
     return dist;
+}
+// 点到直线距离
+double point2line(double y,double x,double k,double b){
+    double xc,yc,dist;
+    if(ifp.is_x){
+        return fabs(y-b);
+    }else if(ifp.is_y){
+        return fabs(x-b);
+    }else{
+    xc = (x+k*(y-b))/(k*k+1);
+    yc = k * xc + b;
+    dist = calculate_dist(x,y,xc,yc);
+    std::cout<<"p2l output dist:"<<dist<<std::endl;
+    return dist;
+    }
 }
 //线性规划验证 两种
 double linear_dep(double y,double x,double k,double b){
@@ -106,74 +122,102 @@ int smooth_path(double target_x,double target_y){
     2:   需要避障
     */
     // 定义参数
-    double k,b;
-    std::vector<int> direction_d,direction_br,direction_bg;
+    double k,b,p2l;
+    std::vector<int> direction_d,direction_br,direction_bg,direction_rd,direction_rbr,direction_rbg;
     path_resist.clear();
     // y-kx-b 在 [-0.4,0.4]的范围内
     if (fabs(target_x-imp.px)<0.03){
         ifp.is_y = true;
         ifp.is_x = false;
+        k=0;
+        b=target_x;
     }else if(fabs(target_y-imp.py)<0.03){
         ifp.is_y = false;
         ifp.is_x = true;
+        k=0;
+        b=target_y;
     }else{
         ifp.is_y = false;
         ifp.is_x = false;
         k=(target_y-imp.py)/(target_x-imp.px);
         b=target_y-k*target_x;
-        ifp.kp=1/k;
+        ifp.kp=(-1)/k;
+        std::cout<<"kp:"<<ifp.kp<<std::endl;
     }
     // 距离测算
     ifp.dist_rb=calculate_dist(br.px, br.py, imp.px, imp.py);
     ifp.dist_gb=calculate_dist(bg.px, bg.py, imp.px, imp.py);
     ifp.dist_dd=calculate_dist(target_x, target_y, imp.px, imp.py);
-    // 方向判断
-    int dy=(target_y-imp.py)>0;
-    int dx=(target_x-imp.px)>0;
+
+    int dy=(target_y-imp.py)>-0.3;
+    int dx=(target_x-imp.px)>-0.3;
     direction_d.push_back(dx);
     direction_d.push_back(dy);
-    int ry=(br.py-imp.py)>0;
-    int rx=(br.px-imp.px)>0;
+    int aldy=(imp.py-target_y)>-0.3;
+    int aldx=(imp.px-target_x)>-0.3;
+    direction_rd.push_back(aldx);
+    direction_rd.push_back(aldy);
+    int ry=(br.py-imp.py)>-0.3;
+    int rx=(br.px-imp.px)>-0.3;
     direction_br.push_back(rx);
     direction_br.push_back(ry);
-    int gy=(bg.py-imp.py)>0;
-    int gx=(bg.px-imp.px)>0;
+    int alry=(imp.py-br.py)>-0.3;
+    int alrx=(imp.px-br.px)>-0.3;
+    direction_rbr.push_back(alrx);
+    direction_rbr.push_back(alry);
+    int gy=(bg.py-imp.py)>-0.3;
+    int gx=(bg.px-imp.px)>-0.3;
     direction_bg.push_back(gx);
     direction_bg.push_back(gy);
+    int algy=(imp.py-bg.py)>-0.3;
+    int algx=(imp.px-bg.px)>-0.3;
+    direction_rbg.push_back(algx);
+    direction_rbg.push_back(algy);
     //三种情况  避障 直接走 不可走
     if((calculate_dist(br.px, br.py, target_x, target_y)<=0.45)||(calculate_dist(bg.px, bg.py, target_x, target_y)<=0.45)){
         // 不可以走 会撞到
         std::cout<<"there is no way to the point.it cause issue"<<std::endl;
         return 0;
     }
-    if((direction_d==direction_br)&&(direction_d!=direction_bg)){
+    if((direction_rd!=direction_rbg)&&(direction_d!=direction_bg)&&((direction_d==direction_br)||(direction_rd==direction_rbr))&&(point2line( br.py, br.px, k, b)<=0.45)){
+        std::cout<<"classify now"<<std::endl;
         line_resist.clear();
         line_resist.push_back(br.px);
         line_resist.push_back(br.py);
         path_resist.push_back(line_resist);
-    }else if((direction_d!=direction_br)&&(direction_d==direction_bg)){
+    }else if((direction_rd!=direction_rbr)&&(direction_d!=direction_br)&&((direction_d==direction_bg)||(direction_rd==direction_rbg))&&(point2line( bg.py, bg.px, k, b)<=0.45)){
+        std::cout<<"classify now"<<std::endl;
         line_resist.clear();
         line_resist.push_back(bg.px);
         line_resist.push_back(bg.py);
         path_resist.push_back(line_resist);
-    }else if((direction_d==direction_br)&&(direction_d==direction_bg)){
+    }else if(((direction_d==direction_br)&&(direction_d==direction_bg))||((direction_rd==direction_rbr)&&(direction_rd==direction_rbg))){
+        std::cout<<"classify now"<<std::endl;
         line_resist.clear();
         if(ifp.dist_rb>=ifp.dist_gb){
-            line_resist.push_back(bg.px);
-            line_resist.push_back(bg.py);
-            path_resist.push_back(line_resist);
+            if(point2line( bg.py, bg.px, k, b)<=0.45){
+                line_resist.push_back(bg.px);
+                line_resist.push_back(bg.py);
+                path_resist.push_back(line_resist);
+            }
             line_resist.clear();
-            line_resist.push_back(br.px);
-            line_resist.push_back(br.py);
-            path_resist.push_back(line_resist);
+            if(point2line( br.py, br.px, k, b)<=0.45){
+                line_resist.push_back(br.px);
+                line_resist.push_back(br.py);
+                path_resist.push_back(line_resist);
+            }
         }else{
-            line_resist.push_back(br.px);
-            line_resist.push_back(br.py);
-            path_resist.push_back(line_resist);
+            if(point2line( br.py, br.px, k, b)<=0.45){
+                line_resist.push_back(br.px);
+                line_resist.push_back(br.py);
+                path_resist.push_back(line_resist);
+            }
             line_resist.clear();
+            if(point2line( bg.py, bg.px, k, b)<=0.45){
             line_resist.push_back(bg.px);
             line_resist.push_back(bg.py);
             path_resist.push_back(line_resist);
+            }
         }
     }
     if(path_resist.empty()){
@@ -194,14 +238,17 @@ void set_path(double x_0,double y_0){
     double bp,delta,ao,bo,co,solve_x0,solve_x1,solve_y0,solve_y1;
     // 求解二次方程的解集
     bp = y_0-ifp.kp*x_0;
+    std::cout<<"bp:"<<bp<<std::endl;
     ao=1+ ifp.kp*ifp.kp;//a 大于1 不用担心被除
-    bo=ifp.kp*(bp-y_0);
-    co=x_0*x_0+(bp-y_0)*(bp-y_0)-0.25;
+    bo=2*ifp.kp*(bp-y_0)-2*x_0;
+    co=x_0*x_0+(bp-y_0)*(bp-y_0)-0.36;
     delta = bo*bo-4*ao*co;
-    solve_x0 = (-bo+sqrt(delta))/2*ao;
-    solve_x1 = (-bo-sqrt(delta))/2*ao;
+    std::cout<<"a0:"<<ao<<"b0:"<<bo<<"co:"<<co<<"delta"<<delta<<std::endl;
+    solve_x0 = ((-1)*bo+sqrt(delta))/(2*ao);
     solve_y0 = ifp.kp*solve_x0+bp;
+    solve_x1 = ((-1)*bo-sqrt(delta))/(2*ao);
     solve_y1 = ifp.kp*solve_x1+bp;
+    std::cout<<"x0:"<<solve_x0<<"y0:"<<solve_y0<<"x1:"<<solve_x1<<"y1:"<<solve_y1<<std::endl;
     cross_point.clear();
     cross_point.push_back(solve_x0);
     cross_point.push_back(solve_y0);
@@ -212,15 +259,15 @@ void set_path(double x_0,double y_0){
 int select_path(double x,double y){
     path_line.clear();
     path_point.clear();
-    switch(smooth_path(2,1)){
+    switch(smooth_path(x,y)){
         case 0:                  
-            path_line.push_back(0);
-            path_line.push_back(1);
+            path_line.push_back(imp.px);
+            path_line.push_back(imp.py);
             path_point.push_back(path_line);
             break;
         case 1:
-            path_line.push_back(2);
-            path_line.push_back(1);
+            path_line.push_back(x);
+            path_line.push_back(y);
             path_point.push_back(path_line);
             break;
         case 2:
@@ -274,6 +321,10 @@ int select_path(double x,double y){
                     }            
                 }                 
             }
+            path_line.clear();
+            path_line.push_back(x);
+            path_line.push_back(y);
+            path_point.push_back(path_line);
             std::cout<<"calcaluted fin"<<std::endl; 
             break;
     }
@@ -406,7 +457,6 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     */
     transpoi(current_posi);
 }
-
 int main(int argc, char **argv)
 {
     flag1=1;
@@ -414,6 +464,10 @@ int main(int argc, char **argv)
     flag3=0;
     flag4=0;
     flag5=0;
+    flag6=0;
+    flag7=0;
+    flag8=0;
+    int ppi = 0;
     ros::init(argc, argv, "offb_node");
     ros::NodeHandle nh;
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
@@ -506,7 +560,7 @@ int main(int argc, char **argv)
             raw_data.yaw =0; 
             last_request = ros::Time::now();
             if((fabs(imp.px-raw_data.position.x)<0.04) && (fabs(imp.py-raw_data.position.y)<0.04)){
-                ROS_INFO("init successed"); 
+                ROS_INFO("init successed");
                 flag1 = 0;
                 flag2 = 1;
             }
@@ -532,50 +586,100 @@ int main(int argc, char **argv)
                 flag3 = 1;
             }
         }
-        //飞到第3点
+        //路径规划
         if ( ros::Time::now()-last_request>ros::Duration(1) && flag3==1)
         {
-            ROS_INFO("pos2");
-            path_point.clear();
-            path_line.clear();
-            // 避障情况选择语句 详细说明见smooth_path定义
-            
-
-
-
-            
+            ROS_INFO("pos planning"); 
+            if(!path_point.empty()){
+                ROS_INFO("pos planning fin");
+                flag3=0;
+                flag4=1;
+            }else{
+                select_path(1.7,1.5);
+            } 
+            last_request = ros::Time::now();          
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag4==1)
+        {
+            ROS_INFO("pos 2");
+            int pps= path_point.size();
+            ROS_INFO("x:%f",path_point[ppi][0]);
+            ROS_INFO("y:%f",path_point[ppi][1]);
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= path_point[ppi][0];
+            raw_data.position.y= path_point[ppi][1];
+            raw_data.position.z= 1.5;
+            raw_data.yaw =0; 
             last_request = ros::Time::now();
-            //break;
-            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
-                saveimg();
-                ROS_INFO("pos2 successed"); 
-                flag3 = 0;
-                flag4=  1; 
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                ROS_INFO("pos 2 successed once");
+                ppi++;
             }
+            if(ppi>=pps){
+                ROS_INFO("pos2 planning successed");
+                flag4 = 0;
+                flag5 = 1;
+                ppi = 0;
+                path_point.clear();
+            }          
         }
         // 旋转
-        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag4==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag5==1)
         {
-            // ROS_INFO("pos r");
-            // raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            // raw_data.position.x= br.px-0.6*std::cos(br.yaw);
-            // raw_data.position.y= br.py-0.6*std::sin(br.yaw);
-            // raw_data.position.z= 1.5;
-            // if (br.yaw<=M_PI){raw_data.yaw = br.yaw; }
-            // else{raw_data.yaw = br.yaw-2*M_PI;}
-            // last_request = ros::Time::now();
-            // break;
-            // if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
-            //     saveimg();
-            //     ROS_INFO("pos r successed"); 
-            //     ROS_INFO("dist:%f",ig.dist);
-            //     if(br.yaw>(M_PI*2)){
-            //         break;
-            //         br.yaw=0;
-            //     }else{
-            //         br.yaw=br.yaw+M_PI/18;
-            //     }
-            // }
+            ROS_INFO("pos r");
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= bg.px-0.6*std::cos(bg.yaw);
+            raw_data.position.y= bg.py-0.6*std::sin(bg.yaw);
+            raw_data.position.z= 1.5;
+            if (bg.yaw<=M_PI){raw_data.yaw = bg.yaw; }
+            else{raw_data.yaw = bg.yaw-2*M_PI;}
+            last_request = ros::Time::now();
+            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                // saveimg();
+                ROS_INFO("pos r successed"); 
+                ROS_INFO("dist:%f",ig.dist);
+                if(bg.yaw>(M_PI*2)){
+                    flag5=0;
+                    flag6=1;
+                    bg.yaw=0;
+                }else{
+                    bg.yaw=bg.yaw+M_PI/18;
+                }
+            }
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag6==1)
+        {
+            ROS_INFO("pos planning");       
+            if(!path_point.empty()){
+                ROS_INFO("pos planning fin");
+                flag6=0;
+                flag7=1;
+            }else{
+                select_path(0,0);
+            } 
+            last_request = ros::Time::now();          
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag7==1)
+        {
+            ROS_INFO("pos 3");
+            int pps= path_point.size();
+            ROS_INFO("x:%f",path_point[ppi][0]);
+            ROS_INFO("y:%f",path_point[ppi][1]);
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= path_point[ppi][0];
+            raw_data.position.y= path_point[ppi][1];
+            raw_data.position.z= 1.5;
+            raw_data.yaw =0; 
+            last_request = ros::Time::now();
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                ROS_INFO("pos 3 successed once");
+                ppi++;
+            }
+            if(ppi>=pps){
+                ROS_INFO("pos3 planning successed");
+                ppi=0;
+                break;
+            }          
         }
         raw_local_pub.publish(raw_data);
         ros::spinOnce();
