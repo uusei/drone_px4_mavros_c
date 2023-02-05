@@ -18,6 +18,7 @@
 #include <opencv2/imgproc/types_c.h>
 #include <opencv2/imgproc.hpp>
 #include <cv_bridge/cv_bridge.h>
+#include <flyoff_pkg/Num.h>
 #include <string> 
 #include <iostream>
 #include<cmath>
@@ -26,7 +27,7 @@
 
 //定义标志位
 int flag1,flag2,flag3,flag4,flag5,flag6,flag7,flag8;
- int num_pic = 0;
+int num_pic = 0;
 //当前imu位姿态 精确度4位 调用方法举例:imp.px
 struct imup{
     double px,py,pz,roll, pitch, yaw;
@@ -195,25 +196,25 @@ int smooth_path(double target_x,double target_y){
         std::cout<<"classify now"<<std::endl;
         line_resist.clear();
         if(ifp.dist_rb>=ifp.dist_gb){
-            if(point2line( bg.py, bg.px, k, b)<=0.45){
+            if((point2line(bg.py, bg.px, k, b)<=0.45)&&(ifp.dist_dd>=ifp.dist_gb)){
                 line_resist.push_back(bg.px);
                 line_resist.push_back(bg.py);
                 path_resist.push_back(line_resist);
             }
             line_resist.clear();
-            if(point2line( br.py, br.px, k, b)<=0.45){
+            if((point2line( br.py, br.px, k, b)<=0.45)&&(ifp.dist_dd>=ifp.dist_rb)){
                 line_resist.push_back(br.px);
                 line_resist.push_back(br.py);
                 path_resist.push_back(line_resist);
             }
         }else{
-            if(point2line( br.py, br.px, k, b)<=0.45){
+            if((point2line( br.py, br.px, k, b)<=0.45)&&(ifp.dist_dd>=ifp.dist_rb)){
                 line_resist.push_back(br.px);
                 line_resist.push_back(br.py);
                 path_resist.push_back(line_resist);
             }
             line_resist.clear();
-            if(point2line( bg.py, bg.px, k, b)<=0.45){
+            if((point2line( bg.py, bg.px, k, b)<=0.45)&&(ifp.dist_dd>=ifp.dist_gb)){
             line_resist.push_back(bg.px);
             line_resist.push_back(bg.py);
             path_resist.push_back(line_resist);
@@ -408,6 +409,17 @@ void state_cb(const mavros_msgs::State::ConstPtr& msg){
     current_state = *msg;
 }
 // 转换坐标姿态
+ /*
+    坐标位置
+    current_posi.pose.position.x
+    current_posi.pose.position.y
+    current_posi.pose.position.z
+    四元数
+    current_posi.pose.orientation.x
+    current_posi.pose.orientation.y
+    current_posi.pose.orientation.z
+    current_posi.pose.orientation.w
+*/
 void transpoi(geometry_msgs::PoseStamped current_posi){
     // 实例化角度
     double ox=current_posi.pose.orientation.x;
@@ -444,17 +456,6 @@ void transpoi(geometry_msgs::PoseStamped current_posi){
 geometry_msgs::PoseStamped current_posi;
 void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     current_posi = *msg;
-    /*
-    坐标位置
-    current_posi.pose.position.x
-    current_posi.pose.position.y
-    current_posi.pose.position.z
-    四元数
-    current_posi.pose.orientation.x
-    current_posi.pose.orientation.y
-    current_posi.pose.orientation.z
-    current_posi.pose.orientation.w
-    */
     transpoi(current_posi);
 }
 int main(int argc, char **argv)
@@ -481,8 +482,11 @@ int main(int argc, char **argv)
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
             ("mavros/setpoint_position/local", 10);
     // 新定义的发布
-     ros::Publisher raw_local_pub = nh.advertise<mavros_msgs::PositionTarget>
+    ros::Publisher raw_local_pub = nh.advertise<mavros_msgs::PositionTarget>
             ("/mavros/setpoint_raw/local", 10);
+    //发布 x y yaw 
+    ros::Publisher xy_yaw_pub = nh.advertise<flyoff_pkg::Num>
+            ("/flyoff/local", 10);
     ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>
             ("mavros/cmd/arming");
     ros::ServiceClient set_mode_client = nh.serviceClient<mavros_msgs::SetMode>
@@ -496,6 +500,8 @@ int main(int argc, char **argv)
         rate.sleep();
     }
 
+    flyoff_pkg::Num pose2d;
+    
     mavros_msgs::PositionTarget raw_data;
 
     geometry_msgs::PoseStamped pose;
@@ -540,6 +546,10 @@ int main(int argc, char **argv)
                 last_request = ros::Time::now();
             }
         }
+        pose2d.zheng=imp.px;
+        pose2d.zuo=imp.py;
+        pose2d.jiao=imp.yaw;
+        xy_yaw_pub.publish(pose2d);
         local_pos_pub.publish(pose);
         if ( ros::Time::now()-last_request>ros::Duration(10))
             break;
@@ -681,6 +691,10 @@ int main(int argc, char **argv)
                 break;
             }          
         }
+        pose2d.zheng=imp.px;
+        pose2d.zuo=imp.py;
+        pose2d.jiao=imp.yaw;
+        xy_yaw_pub.publish(pose2d);
         raw_local_pub.publish(raw_data);
         ros::spinOnce();
         rate.sleep();

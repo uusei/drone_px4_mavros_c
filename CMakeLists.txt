@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   cv_bridge
   image_transport
+  message_generation
 )
 find_package(OpenCV REQUIRED)
 
@@ -51,11 +52,11 @@ find_package(OpenCV REQUIRED)
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-# add_message_files(
-#   FILES
-#   Message1.msg
+add_message_files(
+   FILES
+   Num.msg
 #   Message2.msg
-# )
+ )
 
 ## Generate services in the 'srv' folder
 # add_service_files(
@@ -72,10 +73,12 @@ find_package(OpenCV REQUIRED)
 # )
 
 ## Generate added messages and services with any dependencies listed here
-# generate_messages(
-#   DEPENDENCIES
-#   geometry_msgs#   mavros_msgs#   std_msgs
-# )
+ generate_messages(
+   DEPENDENCIES
+   #geometry_msgs   
+   #mavros_msgs   
+   std_msgs	
+ )
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##
@@ -109,7 +112,7 @@ find_package(OpenCV REQUIRED)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES flyoff_pkg
-#  CATKIN_DEPENDS geometry_msgs mavros_msgs roscpp std_msgs
+  CATKIN_DEPENDS geometry_msgs mavros_msgs roscpp std_msgs message_runtime
 #  DEPENDS system_lib
 )
 
@@ -211,4 +214,3 @@ include_directories(
 add_executable(flyoff_node src/flyoff_node.cpp)
 add_dependencies(flyoff_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(flyoff_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
-
