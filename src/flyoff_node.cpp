@@ -18,7 +18,7 @@
 #include <opencv2/imgproc/types_c.h>
 #include <opencv2/imgproc.hpp>
 #include <cv_bridge/cv_bridge.h>
-#include <flyoff_pkg/Num.h>
+#include <geometry_msgs/Pose2D.h>
 #include <string> 
 #include <iostream>
 #include<cmath>
@@ -485,8 +485,8 @@ int main(int argc, char **argv)
     ros::Publisher raw_local_pub = nh.advertise<mavros_msgs::PositionTarget>
             ("/mavros/setpoint_raw/local", 10);
     //发布 x y yaw 
-    ros::Publisher xy_yaw_pub = nh.advertise<flyoff_pkg::Num>
-            ("/flyoff/local", 10);
+    ros::Publisher xy_yaw_pub = nh.advertise<geometry_msgs::Pose2D>
+            ("/mavros/flyoff/local", 10);
     ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>
             ("mavros/cmd/arming");
     ros::ServiceClient set_mode_client = nh.serviceClient<mavros_msgs::SetMode>
@@ -500,7 +500,7 @@ int main(int argc, char **argv)
         rate.sleep();
     }
 
-    flyoff_pkg::Num pose2d;
+    geometry_msgs::Pose2D pose2d;
     
     mavros_msgs::PositionTarget raw_data;
 
@@ -546,9 +546,9 @@ int main(int argc, char **argv)
                 last_request = ros::Time::now();
             }
         }
-        pose2d.zheng=imp.px;
-        pose2d.zuo=imp.py;
-        pose2d.jiao=imp.yaw;
+        pose2d.x=imp.px;
+        pose2d.y=imp.py;
+        pose2d.theta=imp.yaw;
         xy_yaw_pub.publish(pose2d);
         local_pos_pub.publish(pose);
         if ( ros::Time::now()-last_request>ros::Duration(10))
