@@ -26,7 +26,7 @@
 #include <ctime>
 
 //定义标志位
-int flag1,flag2,flag3,flag4,flag5,flag6,flag7,flag8;
+int flag1,flag2,flag3,flag4,flag5,flag6,flag7,flag8,flag9,flag10,flag11,flag12;
 int num_pic = 0;
 //当前imu位姿态 精确度4位 调用方法举例:imp.px
 struct imup{
@@ -148,8 +148,7 @@ int smooth_path(double target_x,double target_y){
         std::cout<<"kp:"<<ifp.kp<<std::endl;
     }
     // 距离测算
-    ifp.dist_rb=calculate_dist(br.px, br.py, imp.px, imp.py);
-    ifp.dist_gb=calculate_dist(bg.px, bg.py, imp.px, imp.py);
+    
     ifp.dist_dd=calculate_dist(target_x, target_y, imp.px, imp.py);
 
     int dy=(target_y-imp.py)>-0.3;
@@ -333,6 +332,31 @@ int select_path(double x,double y){
     }
     return 0;
 }
+// 决定先去哪个杆子 
+std::vector<double> bar_line;
+std::vector<std::vector<double>> bar_point;
+void bar_path(){
+    ifp.dist_rb=calculate_dist(br.px, br.py, imp.px, imp.py);
+    ifp.dist_gb=calculate_dist(bg.px, bg.py, imp.px, imp.py);
+    bar_line.clear();
+    if(ifp.dist_gb>=ifp.dist_rb){
+        bar_line.push_back(br.px);
+        bar_line.push_back(br.py);
+        bar_point.push_back(bar_line);
+        bar_line.clear();
+        bar_line.push_back(bg.px);
+        bar_line.push_back(bg.py);
+        bar_point.push_back(bar_line);
+    }else{
+        bar_line.push_back(bg.px);
+        bar_line.push_back(bg.py);
+        bar_point.push_back(bar_line);
+        bar_line.clear();
+        bar_line.push_back(br.px);
+        bar_line.push_back(br.py);
+        bar_point.push_back(bar_line);
+    }
+}
 
 void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
     // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
@@ -377,7 +401,7 @@ void img_process(){
         cv::Rect  rect = cv::boundingRect(cnts.at(k));
         std::cout<<"w"<<rect.width<<std::endl;
         std::cout<<"h"<<rect.height<<std::endl;
-        if ((cv::contourArea(cnts.at(k)) >= 3000) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=100)&& (rect.width <= 320)&& (rect.height >=100)&& (rect.height <= 320)){
+        if ((cv::contourArea(cnts.at(k)) >= 3000) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=100)&& (rect.width <= 250)&& (rect.height >=100)&& (rect.height <= 250)){
             contours.push_back(cnts.at(k));
             std::cout<<"get contours"<<std::endl;
         }
@@ -475,6 +499,10 @@ int main(int argc, char **argv)
     flag6=0;
     flag7=0;
     flag8=0;
+    flag9=0;
+    flag10=0;
+    flag11=0;
+    flag12=0;
     int ppi = 0;
     ros::init(argc, argv, "offb_node");
     ros::NodeHandle nh;
@@ -598,7 +626,8 @@ int main(int argc, char **argv)
             // 闭环校正位置
             if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
                 saveimg();
-                ROS_INFO("pos1 successed"); 
+                ROS_INFO("pos1 successed");
+                bar_path();
                 flag2 = 0;
                 flag3 = 1;
             }
@@ -612,7 +641,7 @@ int main(int argc, char **argv)
                 flag3=0;
                 flag4=1;
             }else{
-                select_path(1.7,1.5);
+                select_path(bar_point[0][0]-0.6,bar_point[0][1]);
             } 
             last_request = ros::Time::now();          
         }
@@ -640,43 +669,63 @@ int main(int argc, char **argv)
                 path_point.clear();
             }          
         }
+
         // 旋转
         if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag5==1)
         {
             ROS_INFO("pos r");
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= bg.px-0.6*std::cos(bg.yaw);
-            raw_data.position.y= bg.py-0.6*std::sin(bg.yaw);
+            raw_data.position.x= bar_point[0][0]-0.6*std::cos(br.yaw);
+            raw_data.position.y= bar_point[0][1]-0.6*std::sin(br.yaw);
             raw_data.position.z= 1.5;
-            if (bg.yaw<=M_PI){raw_data.yaw = bg.yaw; }
-            else{raw_data.yaw = bg.yaw-2*M_PI;}
+            if (br.yaw<=M_PI){raw_data.yaw = br.yaw; }
+            else{raw_data.yaw = br.yaw-2*M_PI;}
             last_request = ros::Time::now();
             if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
                 // saveimg();
                 ROS_INFO("pos r successed"); 
                 ROS_INFO("dist:%f",ig.dist);
-                if(bg.yaw>(M_PI*2)){
+                if(br.yaw>(M_PI*2)){
                     flag5=0;
                     flag6=1;
-                    bg.yaw=0;
+                    br.yaw=0;
                 }else{
-                    bg.yaw=bg.yaw+M_PI/18;
+                    br.yaw=br.yaw+M_PI/18;
                 }
             }
         }
         if ( ros::Time::now()-last_request>ros::Duration(1) && flag6==1)
         {
-            ROS_INFO("pos planning");       
+            ROS_INFO("pos1");
+            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= bar_point[0][0]-0.8;
+            raw_data.position.y= bar_point[0][1];
+            raw_data.position.z= 1.5;
+            raw_data.yaw =0; 
+            last_request = ros::Time::now(); 
+            // 闭环校正位置
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                saveimg();
+                ROS_INFO("pos1 successed");
+                bar_path();
+                flag6 = 0;
+                flag7 = 1;
+            }
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag7==1)
+        {
+            ROS_INFO("pos planning"); 
             if(!path_point.empty()){
                 ROS_INFO("pos planning fin");
-                flag6=0;
-                flag7=1;
+                flag7=0;
+                flag8=1;
             }else{
-                select_path(0.1,1.8);
+                select_path(bar_point[1][0]-0.6,bar_point[1][1]);
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag7==1)
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag8==1)
         {
             ROS_INFO("pos 3");
             int pps= path_point.size();
@@ -694,23 +743,83 @@ int main(int argc, char **argv)
             }
             if(ppi>=pps){
                 ROS_INFO("pos3 planning successed");
+                flag8 = 0;
+                flag9 = 1;
+                ppi = 0;
+                path_point.clear();
+            }          
+        }
+        // 旋转
+        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag9==1)
+        {
+            ROS_INFO("pos r2");
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= bar_point[1][0]-0.6*std::cos(bg.yaw);
+            raw_data.position.y= bar_point[1][1]-0.6*std::sin(bg.yaw);
+            raw_data.position.z= 1.5;
+            if (bg.yaw<=M_PI){raw_data.yaw = bg.yaw; }
+            else{raw_data.yaw = bg.yaw-2*M_PI;}
+            last_request = ros::Time::now();
+            if(fabs(imp.px-raw_data.position.x)<0.03 && fabs(imp.py-raw_data.position.y)<0.03 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                // saveimg();
+                ROS_INFO("pos r2 successed"); 
+                ROS_INFO("dist:%f",ig.dist);
+                if(bg.yaw>(M_PI*2)){
+                    flag9=0;
+                    flag10=1;
+                    bg.yaw=0;
+                }else{
+                    bg.yaw=bg.yaw+M_PI/18;
+                }
+            }
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag10==1)
+        {
+            ROS_INFO("pos planning");       
+            if(!path_point.empty()){
+                ROS_INFO("pos planning fin");
+                flag10=0;
+                flag11=1;
+            }else{
+                select_path(0.1,1.8);
+            } 
+            last_request = ros::Time::now();          
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag11==1)
+        {
+            ROS_INFO("pos 4");
+            int pps= path_point.size();
+            ROS_INFO("x:%f",path_point[ppi][0]);
+            ROS_INFO("y:%f",path_point[ppi][1]);
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= path_point[ppi][0];
+            raw_data.position.y= path_point[ppi][1];
+            raw_data.position.z= 1.5;
+            raw_data.yaw =0;
+            last_request = ros::Time::now();
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                ROS_INFO("pos 4 successed once");
+                ppi++;
+            }
+            if(ppi>=pps){
+                ROS_INFO("pos4 planning successed");
                 ppi=0;
-                flag7=0;
-                flag8=1;
+                flag11=0;
+                flag12=1;
                 saveimg();
                 img_process();
             }          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(2) && flag8==1)
+        if ( ros::Time::now()-last_request>ros::Duration(2) && flag12==1)
         {
-            ROS_INFO("pos1");
+            ROS_INFO("pos5");
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
             raw_data.position.x= ig.x_dist;
             raw_data.position.y= ig.y_dist;
             raw_data.position.z= 0.5;
             raw_data.yaw =0; 
             if(fabs(imp.px-raw_data.position.x)<0.02 && fabs(imp.py-raw_data.position.y)<0.02 && fabs(imp.yaw-raw_data.yaw)<0.02){
-                ROS_INFO("pos1 successed");
+                ROS_INFO("pos5 successed");
                 break;
             }
             last_request = ros::Time::now();
