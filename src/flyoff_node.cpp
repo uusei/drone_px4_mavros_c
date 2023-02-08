@@ -47,12 +47,14 @@ struct bar_r{
     double yaw=0;
 };
 bar_r br;
-
+// 存储图像处理结果和图片信息
 cv::Mat imgCallback;
 struct info_img{
     int width;
     int height;
     double dist;
+    double x_dist;
+    double y_dist;
 };
 info_img ig;
 
@@ -348,49 +350,54 @@ void img_process(){
     std::vector<std::vector<cv::Point>> cnts;  
     std::vector<cv::Vec4i> hier; 
 
-    imgCallback = imgCallback(cv::Range(40,400),cv::Range::all());
+    // imgCallback = imgCallback(cv::Range(40,400),cv::Range::all());
     read = imgCallback;
     ig.width = read.cols;
     ig.height = read.rows;
-    // red mask
+    // mask
     cv::cvtColor(read, hsv, CV_BGR2HSV);
-    cv::inRange(hsv, cv::Scalar(0, 220, 80),cv::Scalar(5, 255, 115),hsv0);
-    cv::inRange(hsv, cv::Scalar(175, 220, 80), cv::Scalar(180, 255, 115),hsv1);
-    cv::bitwise_or(hsv0, hsv1,mask);
-    cv::bitwise_and(read, read, res, mask=mask);
+    cv::inRange(hsv, cv::Scalar(0, 0, 160),cv::Scalar(20, 10, 255),hsv0);
+    cv::bitwise_and(read, read, res, mask=hsv0);
     cv::blur(res, res,cv::Size(5, 5));
     //  二值化
-    cv::threshold(res, res, 10, 255, CV_THRESH_BINARY);
+    cv::threshold(res, res, 100, 255, CV_THRESH_BINARY);
     cv::cvtColor(res, gray, CV_BGR2GRAY);
     // 去噪点 这里编译不通过 直接代替源码数值
     kernel = cv::getStructuringElement(0, cv::Size(5, 5));
     cv::morphologyEx(gray,opened, 3, kernel);
     cv::morphologyEx(opened,opened, 3, kernel);
+    cv::bitwise_not(opened,opened);
     // 边缘检测
     cv::findContours(opened,cnts,hier,CV_RETR_EXTERNAL,CV_CHAIN_APPROX_SIMPLE);
-    contours.resize(cnts.size());
+    std::cout<<cnts.size()<<std::endl;
+    // contours.resize(cnts.size());
     cv::imwrite("/home/uusei/img/0.jpg", opened);
     for( int k = 0; k < cnts.size(); k++ )
     {
         cv::Rect  rect = cv::boundingRect(cnts.at(k));
-        if ((cv::contourArea(cnts.at(k)) >= 480) && (cv::contourArea(cnts.at(k)) <= 18000) && (rect.width >= 3)&& (rect.width <= 90)){
+        std::cout<<"w"<<rect.width<<std::endl;
+        std::cout<<"h"<<rect.height<<std::endl;
+        if ((cv::contourArea(cnts.at(k)) >= 3000) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=100)&& (rect.width <= 320)&& (rect.height >=100)&& (rect.height <= 320)){
             contours.push_back(cnts.at(k));
+            std::cout<<"get contours"<<std::endl;
         }
     }
-    for( int k = 0; k < cnts.size(); k++ )
+    for( int k = 0; k < contours.size(); k++ )
     {
-        cv::Rect  rect = cv::boundingRect(cnts.at(k));
+        cv::Rect  rect = cv::boundingRect(contours.at(k));
         int r_x = rect.x + rect.width/2;
         int r_y = rect.y + rect.height/2;
-        double wide = 0;
-        for( int i = 0; i < rect.width; i++ ){
-            for( int j = 0; j < 10; j++ ){
-                if ((read.at<cv::Vec3i>(r_y+j,i+rect.x)[0] <= 35) && (read.at<cv::Vec3i>(r_y+j,i+rect.x)[1]<= 35))
-                    wide += 1;
-            }
-        }
-        wide = wide / 10;
-        ig.dist = wide;
+        ig.x_dist= (r_y - 240)*0.24*0.01*(-1)+imp.px;
+        ig.y_dist= (r_x - 320)*0.24*0.01*(-1)+imp.py;
+        std::cout<<"x"<<ig.x_dist<<std::endl;
+        std::cout<<"y"<<ig.y_dist<<std::endl;
+
+        // for( int i = 0; i < rect.width; i++ ){
+        //     for( int j = 0; j < 10; j++ ){
+        //         if ((read.at<cv::Vec3i>(r_y+j,i+rect.x)[0] <= 35) && (read.at<cv::Vec3i>(r_y+j,i+rect.x)[1]<= 35))
+        //             wide += 1;
+        //     }
+        // }
     } 
     //end = clock();
     //std::cout << "所用时间" << double(end - begin) / CLOCKS_PER_SEC * 1000 << "ms" << std::endl;       
@@ -475,7 +482,7 @@ int main(int argc, char **argv)
             ("mavros/state", 10, state_cb);
     // 订阅图形话题
     ros::Subscriber image_sub = nh.subscribe<sensor_msgs::CompressedImage>
-        ("/realsense_plugin/camera/color/image_raw/compressed", 1, imageCallback);
+        ("/image_raw/compressed", 1, imageCallback);
     // 订阅当前的位置信息
     ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("/mavros/local_position/pose", 10, posi_read);
@@ -665,7 +672,7 @@ int main(int argc, char **argv)
                 flag6=0;
                 flag7=1;
             }else{
-                select_path(0,0);
+                select_path(0.1,1.8);
             } 
             last_request = ros::Time::now();          
         }
@@ -688,12 +695,31 @@ int main(int argc, char **argv)
             if(ppi>=pps){
                 ROS_INFO("pos3 planning successed");
                 ppi=0;
-                break;
+                flag7=0;
+                flag8=1;
+                saveimg();
+                img_process();
             }          
         }
-        pose2d.zheng=imp.px;
-        pose2d.zuo=imp.py;
-        pose2d.jiao=imp.yaw;
+        if ( ros::Time::now()-last_request>ros::Duration(2) && flag8==1)
+        {
+            ROS_INFO("pos1");
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= ig.x_dist;
+            raw_data.position.y= ig.y_dist;
+            raw_data.position.z= 0.5;
+            raw_data.yaw =0; 
+            if(fabs(imp.px-raw_data.position.x)<0.02 && fabs(imp.py-raw_data.position.y)<0.02 && fabs(imp.yaw-raw_data.yaw)<0.02){
+                ROS_INFO("pos1 successed");
+                break;
+            }
+            last_request = ros::Time::now();
+            //ROS_INFO("yaw:%f",imp.yaw);
+            //ROS_INFO("x:%f",imp.px);
+        }
+        pose2d.x=imp.px;
+        pose2d.y=imp.py;
+        pose2d.theta=imp.yaw;
         xy_yaw_pub.publish(pose2d);
         raw_local_pub.publish(raw_data);
         ros::spinOnce();
@@ -701,6 +727,7 @@ int main(int argc, char **argv)
     }
     // 降落步骤
     while(ros::ok()){
+
         if ( ros::Time::now()-last_request>ros::Duration(5) )
         {
             offb_set_mode.request.custom_mode = "AUTO.LAND";
