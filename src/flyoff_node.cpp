@@ -1,37 +1,50 @@
-/**
- * @file offb_node.cpp
- * @brief Offboard control example node, written with MAVROS version 0.19.x, PX4 Pro Flight
- * Stack and tested in Gazebo SITL
+/*
+    节点名：gazebo 仿真节点
+    节点描述：实现飞行器自主飞行控制
  */
 // 引入类 这些东西可以在rostopic 里面找到
 #include <ros/ros.h>
-#include "opencv2/opencv.hpp"
 #include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/Pose2D.h>
 #include <mavros_msgs/CommandBool.h>
 #include <mavros_msgs/PositionTarget.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
 #include <image_transport/image_transport.h>
 #include "sensor_msgs/image_encodings.h"
+// opencv 库 
+#include "opencv2/opencv.hpp"
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/types_c.h>
 #include <opencv2/imgproc.hpp>
 #include <cv_bridge/cv_bridge.h>
-#include <geometry_msgs/Pose2D.h>
+// C++ 标准库 
 #include <string> 
 #include <iostream>
 #include<cmath>
 #include <vector>
 #include <ctime>
 
-//定义标志位
-int flag1,flag2,flag3,flag4,flag5,flag6,flag7,flag8,flag9,flag10,flag11,flag12;
+/******************************************************************************************************
+    功能区介绍：变量定义和声明
+    功能区功能描述：
+        1 定义运行顺序的标志
+        2 定义全局坐标姿态变量
+        3 定义障碍物位置
+        4 定义处理结果
+        5 定义运行路径点
+******************************************************************************************************/
+
+//定义标志位 共12个
+int flag1, flag2, flag3, flag4, flag5, flag6, flag7, flag8, flag9, flag10, flag11, flag12;
+// 保存图片序号定义
 int num_pic = 0;
-//当前imu位姿态 精确度4位 调用方法举例:imp.px
+//当前imu位姿态 6轴  精确度4位 调用方法举例:imp.px
 struct imup{
-    double px,py,pz,roll, pitch, yaw;
+    double px, py, pz, roll, pitch, yaw;
 };
+
 imup imp;
 //结构体 绿色杆子位置
 struct bar_g{
@@ -47,7 +60,8 @@ struct bar_r{
     double yaw=0;
 };
 bar_r br;
-// 存储图像处理结果和图片信息
+
+// opencv存储图像处理结果和图片信息
 cv::Mat imgCallback;
 struct info_img{
     int width;
@@ -70,7 +84,7 @@ struct info_point{
     double dist_dd;
 };
 info_point ifp;
-// cross_point.clear(); 清除向量内容
+
 /*
     1.path_point 无人机路径点
     2.path_resist 障碍物点
@@ -78,9 +92,23 @@ info_point ifp;
     通过障碍物点确定路径点
     比较选择最小距离
 */
+
 std::vector<double> cross_point,path_line,line_resist;
 std::vector<std::vector<double>> path_point,path_resist;
-// 计算坐标距离 
+
+/*******************************************************************************************************/
+/*
+    功能区介绍：基本功能函数定义和声明
+    功能描述：
+        1 计算距离关系 
+        2 进行路径规划 
+        3 opencv图像处理 
+        4 四元素和3坐标之间的转换 
+        5 接受ros节点信息的回调函数
+*/
+/*******************************************************************************************************/
+
+// 计算坐标之间两点距离 
 double calculate_dist(double origin_x,double origin_y,double target_x,double target_y){
     double dist;
     double l_x,l_y;
@@ -104,17 +132,6 @@ double point2line(double y,double x,double k,double b){
     std::cout<<"p2l output dist:"<<dist<<std::endl;
     return dist;
     }
-}
-//线性规划验证 两种
-double linear_dep(double y,double x,double k,double b){
-    double arg;
-    arg = y - k*x -b;
-    return arg;
-}
-double linear_depx(double x,double b){
-    double arg;
-    arg = x -b;
-    return arg;
 }
 // 路径规划 判断行进信息
 int smooth_path(double target_x,double target_y){
@@ -230,7 +247,6 @@ int smooth_path(double target_x,double target_y){
         return 2;
     }
 }
-
 // 路径规划 规划途径障碍物的路径点  圆心为障碍物坐标
 void set_path(double x_0,double y_0){
     /*  
@@ -257,7 +273,7 @@ void set_path(double x_0,double y_0){
     cross_point.push_back(solve_x1);
     cross_point.push_back(solve_y1);
 }
-//路径规划 最终封包
+//路径规划 封装全部功能 设置路径点
 int select_path(double x,double y){
     path_line.clear();
     path_point.clear();
@@ -332,10 +348,10 @@ int select_path(double x,double y){
     }
     return 0;
 }
-// 决定先去哪个杆子 
-std::vector<double> bar_line;
+// 决定先去哪个杆子 路径最短 
 std::vector<std::vector<double>> bar_point;
 void bar_path(){
+    std::vector<double> bar_line;
     ifp.dist_rb=calculate_dist(br.px, br.py, imp.px, imp.py);
     ifp.dist_gb=calculate_dist(bg.px, bg.py, imp.px, imp.py);
     bar_line.clear();
@@ -357,13 +373,13 @@ void bar_path(){
         bar_point.push_back(bar_line);
     }
 }
-
+// 回调函数:读取图片
 void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
     // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
     cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
     imgCallback = cv_ptr->image;
 }
-// 图像处理
+// 图像处理:降落处理
 void img_process(){
     //clock_t begin, end;
     //begin = clock();
@@ -415,13 +431,6 @@ void img_process(){
         ig.y_dist= (r_x - 320)*0.24*0.01*(-1)+imp.py;
         std::cout<<"x"<<ig.x_dist<<std::endl;
         std::cout<<"y"<<ig.y_dist<<std::endl;
-
-        // for( int i = 0; i < rect.width; i++ ){
-        //     for( int j = 0; j < 10; j++ ){
-        //         if ((read.at<cv::Vec3i>(r_y+j,i+rect.x)[0] <= 35) && (read.at<cv::Vec3i>(r_y+j,i+rect.x)[1]<= 35))
-        //             wide += 1;
-        //     }
-        // }
     } 
     //end = clock();
     //std::cout << "所用时间" << double(end - begin) / CLOCKS_PER_SEC * 1000 << "ms" << std::endl;       
@@ -440,7 +449,8 @@ void state_cb(const mavros_msgs::State::ConstPtr& msg){
     current_state = *msg;
 }
 // 转换坐标姿态
- /*
+void transpoi(geometry_msgs::PoseStamped current_posi){
+     /*
     坐标位置
     current_posi.pose.position.x
     current_posi.pose.position.y
@@ -450,8 +460,7 @@ void state_cb(const mavros_msgs::State::ConstPtr& msg){
     current_posi.pose.orientation.y
     current_posi.pose.orientation.z
     current_posi.pose.orientation.w
-*/
-void transpoi(geometry_msgs::PoseStamped current_posi){
+    */
     // 实例化角度
     double ox=current_posi.pose.orientation.x;
     double oy =current_posi.pose.orientation.y;
@@ -489,6 +498,16 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     current_posi = *msg;
     transpoi(current_posi);
 }
+
+/*******************************************************************************************************/
+/*
+    功能区介绍：主函数
+    功能描述：
+        1 执行飞行 降落功能
+        2 接受话题 发布飞行话题
+*/
+/*******************************************************************************************************/
+
 int main(int argc, char **argv)
 {
     flag1=1;
@@ -559,7 +578,7 @@ int main(int argc, char **argv)
 
     ros::Time last_request = ros::Time::now();
 
-    // 第一阶段解锁
+    // 第一阶段 解锁 与 起飞
     while(ros::ok()){
         //判断一下现在模式是否正确解锁
         if( current_state.mode != "OFFBOARD" &&
@@ -591,7 +610,7 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
-    // 第二阶段飞行路径
+    // 第二阶段 飞行路径计算与设置
     while(ros::ok()){
         // x0m y0m z1.5m 按照坐标系来
         if ( ros::Time::now()-last_request>ros::Duration(1) && flag1==1)
@@ -834,7 +853,7 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
-    // 降落步骤
+    // 第三阶段 飞机降落
     while(ros::ok()){
 
         if ( ros::Time::now()-last_request>ros::Duration(5) )
