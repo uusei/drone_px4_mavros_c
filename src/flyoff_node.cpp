@@ -12,14 +12,14 @@
 #include <mavros_msgs/State.h>
 #include <image_transport/image_transport.h>
 #include "sensor_msgs/image_encodings.h"
-// opencv 库 
+// opencv 库
 #include "opencv2/opencv.hpp"
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/types_c.h>
 #include <opencv2/imgproc.hpp>
 #include <cv_bridge/cv_bridge.h>
-// C++ 标准库 
+// C++ 标准库
 #include <string> 
 #include <iostream>
 #include<cmath>
@@ -34,18 +34,19 @@
         3 定义障碍物位置
         4 定义处理结果
         5 定义运行路径点
+
 ******************************************************************************************************/
 
 //定义标志位 共12个
-int flag1, flag2, flag3, flag4, flag5, flag6, flag7, flag8, flag9, flag10, flag11, flag12;
+int flag1, flag2, flag3, flag4, flag5, flag6, flag7, flag8, flag9, flag10, flag11, flag12,flag13;
 // 保存图片序号定义
 int num_pic = 0;
 //当前imu位姿态 6轴  精确度4位 调用方法举例:imp.px
 struct imup{
     double px, py, pz, roll, pitch, yaw;
 };
-
 imup imp;
+
 //结构体 绿色杆子位置
 struct bar_g{
     double px=2.5;
@@ -53,6 +54,7 @@ struct bar_g{
     double yaw=0;
 };
 bar_g bg;
+
 //结构体 红色杆子位置
 struct bar_r{
     double px=1;
@@ -93,7 +95,7 @@ info_point ifp;
     比较选择最小距离
 */
 
-std::vector<double> cross_point,path_line,line_resist;
+std::vector<double> cross_point,cross_line(2,1),path_line,line_resist;
 std::vector<std::vector<double>> path_point,path_resist;
 
 /*******************************************************************************************************/
@@ -133,6 +135,24 @@ double point2line(double y,double x,double k,double b){
     return dist;
     }
 }
+// 取中间点 提高避障安全性
+void inplug2point(double origin_x,double origin_y,double target_x,double target_y){
+    /*
+        目标点是之前圆心的交点 x0 , y0 ->target_x,target_y
+        垂直外侧点是 x1 ，y1 -> set_x0,set_y0
+    */
+    cross_line.clear();
+    double k_pp = (-1)/ ifp.kp;
+    std::cout<<"i2p output k:"<< k_pp <<std::endl;
+    double set_x0 = (target_x + origin_x) / 2;
+    double set_y0 = (target_y + origin_y) / 2;
+    double fi_x = (k_pp * k_pp * target_x - k_pp * target_y + k_pp * set_y0 + set_x0) / ( k_pp * k_pp + 1);
+    double fi_y = k_pp * (fi_x - target_x) + target_y;
+    cross_line.push_back(fi_x);
+    cross_line.push_back(fi_y);
+    std::cout<<"i2p output x:"<< fi_x <<std::endl;
+    std::cout<<"i2p output y:"<< fi_y <<std::endl;
+}
 // 路径规划 判断行进信息
 int smooth_path(double target_x,double target_y){
     /*
@@ -165,7 +185,6 @@ int smooth_path(double target_x,double target_y){
         std::cout<<"kp:"<<ifp.kp<<std::endl;
     }
     // 距离测算
-    
     ifp.dist_dd=calculate_dist(target_x, target_y, imp.px, imp.py);
 
     int dy=(target_y-imp.py)>-0.3;
@@ -259,7 +278,7 @@ void set_path(double x_0,double y_0){
     std::cout<<"bp:"<<bp<<std::endl;
     ao=1+ ifp.kp*ifp.kp;//a 大于1 不用担心被除
     bo=2*ifp.kp*(bp-y_0)-2*x_0;
-    co=x_0*x_0+(bp-y_0)*(bp-y_0)-0.36;
+    co=x_0*x_0+(bp-y_0)*(bp-y_0)-0.49;
     delta = bo*bo-4*ao*co;
     std::cout<<"a0:"<<ao<<"b0:"<<bo<<"co:"<<co<<"delta"<<delta<<std::endl;
     solve_x0 = ((-1)*bo+sqrt(delta))/(2*ao);
@@ -275,6 +294,7 @@ void set_path(double x_0,double y_0){
 }
 //路径规划 封装全部功能 设置路径点
 int select_path(double x,double y){
+    std::vector<double>::iterator it;
     path_line.clear();
     path_point.clear();
     switch(smooth_path(x,y)){
@@ -291,33 +311,49 @@ int select_path(double x,double y){
         case 2:
             if(ifp.is_y){
                 for(int i=0;i<path_resist.size();i++){
-                    double cd_p0= calculate_dist(path_resist[i][0]+0.5,path_resist[i][1],imp.px,imp.py);
-                    double cd_p1= calculate_dist(path_resist[i][0]-0.5,path_resist[i][1],imp.px,imp.py);
+                    double cd_p0= calculate_dist(path_resist[i][0]+0.6,path_resist[i][1],imp.px,imp.py);
+                    double cd_p1= calculate_dist(path_resist[i][0]-0.6,path_resist[i][1],imp.px,imp.py);
                     if(cd_p0<=cd_p1){
                         path_line.clear();
-                        path_line.push_back(path_resist[i][0]+0.5);
-                        path_line.push_back(path_resist[i][1]);
+                        path_line.push_back(path_resist[i][0]+0.6);
+                        path_line.push_back((path_resist[i][1]+imp.py)/2);
+                        path_point.push_back(path_line);
+                        path_line.clear();
+                        path_line.push_back(path_resist[i][0]+0.6);
+                        path_line.push_back((path_resist[i][1]+y)/2);
                         path_point.push_back(path_line);
                     }else{
                         path_line.clear();
-                        path_line.push_back(path_resist[i][0]);
-                        path_line.push_back(path_resist[i][1]-0.5);
+                        path_line.push_back(path_resist[i][0]-0.6);
+                        path_line.push_back((path_resist[i][1]+imp.py)/2);
+                        path_point.push_back(path_line);
+                        path_line.clear();
+                        path_line.push_back(path_resist[i][0]-0.6);
+                        path_line.push_back((path_resist[i][1]+y)/2);
                         path_point.push_back(path_line);
                     }            
                 }
             }else if(ifp.is_x){
                 for(int i=0;i<path_resist.size();i++){
-                    double cd_p0= calculate_dist(path_resist[i][0],path_resist[i][1]+0.5,imp.px,imp.py);
-                    double cd_p1= calculate_dist(path_resist[i][0],path_resist[i][1]-0.5,imp.px,imp.py);
+                    double cd_p0= calculate_dist(path_resist[i][0],path_resist[i][1]+0.6,imp.px,imp.py);
+                    double cd_p1= calculate_dist(path_resist[i][0],path_resist[i][1]-0.6,imp.px,imp.py);
                     if(cd_p0<=cd_p1){
                         path_line.clear();
-                        path_line.push_back(path_resist[i][0]);
-                        path_line.push_back(path_resist[i][1]+0.5);
+                        path_line.push_back((path_resist[i][0]+imp.px)/2);
+                        path_line.push_back(path_resist[i][1]+0.6);
+                        path_point.push_back(path_line);
+                        path_line.clear();
+                        path_line.push_back((path_resist[i][0]+x)/2);
+                        path_line.push_back(path_resist[i][1]+0.6);
                         path_point.push_back(path_line);
                     }else{
                         path_line.clear();
-                        path_line.push_back(path_resist[i][0]);
-                        path_line.push_back(path_resist[i][1]-0.5);
+                        path_line.push_back((path_resist[i][0]+imp.px)/2);
+                        path_line.push_back(path_resist[i][1]-0.6);
+                        path_point.push_back(path_line);
+                        path_line.clear();
+                        path_line.push_back((path_resist[i][0]+x)/2);
+                        path_line.push_back(path_resist[i][1]-0.6);
                         path_point.push_back(path_line);
                     }            
                 }
@@ -327,17 +363,31 @@ int select_path(double x,double y){
                     double cd_p0= calculate_dist(cross_point[0],cross_point[1],imp.px,imp.py);
                     double cd_p1= calculate_dist(cross_point[2],cross_point[3],imp.px,imp.py);
                     if(cd_p0<=cd_p1){
+                        inplug2point(imp.px,imp.py,cross_point[0],cross_point[1]);
+                        it=cross_line.begin();
+                        path_line.clear();
+                        path_line.push_back(*it);
+                        it = it + 1;
+                        path_line.push_back(*it);
+                        path_point.push_back(path_line);
                         path_line.clear();
                         path_line.push_back(cross_point[0]);
                         path_line.push_back(cross_point[1]);
                         path_point.push_back(path_line);
                     }else{
+                        inplug2point(imp.px,imp.py,cross_point[2],cross_point[3]);
+                        it=cross_line.begin();
+                        path_line.clear();
+                        path_line.push_back(*it);
+                        it = it + 1;
+                        path_line.push_back(*it);
+                        path_point.push_back(path_line);
                         path_line.clear();
                         path_line.push_back(cross_point[2]);
                         path_line.push_back(cross_point[3]);
                         path_point.push_back(path_line);
-                    }            
-                }                 
+                    }
+                }
             }
             path_line.clear();
             path_line.push_back(x);
@@ -387,21 +437,23 @@ void img_process(){
     cv::Mat read,hsv,hsv0,hsv1,mask,res,gray,opened;
 
     std::vector<std::vector<cv::Point>> contours;
-    std::vector<std::vector<cv::Point>> cnts;  
-    std::vector<cv::Vec4i> hier; 
-
+    std::vector<std::vector<cv::Point>> cnts;
+    std::vector<cv::Point> approx;
+    std::vector<cv::Vec4i> hier;
     // imgCallback = imgCallback(cv::Range(40,400),cv::Range::all());
+    double dpx = imp.px;
+    double dpy = imp.py;
     read = imgCallback;
     ig.width = read.cols;
     ig.height = read.rows;
     // mask
-    cv::cvtColor(read, hsv, CV_BGR2HSV);
-    cv::inRange(hsv, cv::Scalar(0, 0, 160),cv::Scalar(20, 10, 255),hsv0);
-    cv::bitwise_and(read, read, res, mask=hsv0);
-    cv::blur(res, res,cv::Size(5, 5));
+    // cv::cvtColor(read, hsv, CV_BGR2HSV);
+    // cv::inRange(hsv, cv::Scalar(0, 0, 220),cv::Scalar(10, 10, 255),hsv0);
+    // cv::bitwise_and(read, read, res, mask=hsv0);
+    cv::blur(read, res,cv::Size(5, 5));
     //  二值化
-    cv::threshold(res, res, 100, 255, CV_THRESH_BINARY);
     cv::cvtColor(res, gray, CV_BGR2GRAY);
+    cv::threshold(gray, gray, 15, 255, CV_THRESH_BINARY); 
     // 去噪点 这里编译不通过 直接代替源码数值
     kernel = cv::getStructuringElement(0, cv::Size(5, 5));
     cv::morphologyEx(gray,opened, 3, kernel);
@@ -417,7 +469,7 @@ void img_process(){
         cv::Rect  rect = cv::boundingRect(cnts.at(k));
         std::cout<<"w"<<rect.width<<std::endl;
         std::cout<<"h"<<rect.height<<std::endl;
-        if ((cv::contourArea(cnts.at(k)) >= 3000) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=100)&& (rect.width <= 250)&& (rect.height >=100)&& (rect.height <= 250)){
+        if ((cv::contourArea(cnts.at(k)) >= 3000) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=150)&& (rect.width <= 270)&& (rect.height >=150)&& (rect.height <= 270)){
             contours.push_back(cnts.at(k));
             std::cout<<"get contours"<<std::endl;
         }
@@ -425,13 +477,21 @@ void img_process(){
     for( int k = 0; k < contours.size(); k++ )
     {
         cv::Rect  rect = cv::boundingRect(contours.at(k));
-        int r_x = rect.x + rect.width/2;
-        int r_y = rect.y + rect.height/2;
-        ig.x_dist= (r_y - 240)*0.24*0.01*(-1)+imp.px;
-        ig.y_dist= (r_x - 320)*0.24*0.01*(-1)+imp.py;
-        std::cout<<"x"<<ig.x_dist<<std::endl;
-        std::cout<<"y"<<ig.y_dist<<std::endl;
-    } 
+        approxPolyDP(contours[k], approx, arcLength(contours[k], true)*0.02, true);
+        std::cout<<" the quantity of edge "<<approx.size()<<std::endl;
+        if((approx.size()<2)||(approx.size()>7)){
+            int r_x = rect.x + rect.width / 2;
+            int r_y = rect.y + rect.height / 2;
+            double para_kx = 60.00 / rect.width;
+            double para_ky = 60.00 / rect.height;
+            std::cout<<"para_kx: "<<para_kx<<std::endl;
+            std::cout<<"para_ky: "<<para_ky<<std::endl;
+            ig.x_dist= (r_y - 240) * para_ky * 0.01 * (-1) + dpx;
+            ig.y_dist= (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
+            std::cout<<"x"<<ig.x_dist<<std::endl;
+            std::cout<<"y"<<ig.y_dist<<std::endl;
+        } 
+    }
     //end = clock();
     //std::cout << "所用时间" << double(end - begin) / CLOCKS_PER_SEC * 1000 << "ms" << std::endl;       
 }
@@ -522,7 +582,9 @@ int main(int argc, char **argv)
     flag10=0;
     flag11=0;
     flag12=0;
+    flag13=0;
     int ppi = 0;
+    
     ros::init(argc, argv, "offb_node");
     ros::NodeHandle nh;
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
@@ -652,7 +714,7 @@ int main(int argc, char **argv)
             }
         }
         //路径规划
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag3==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag3==1)
         {
             ROS_INFO("pos planning"); 
             if(!path_point.empty()){
@@ -664,7 +726,7 @@ int main(int argc, char **argv)
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag4==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag4==1)
         {
             ROS_INFO("pos 2");
             int pps= path_point.size();
@@ -713,18 +775,18 @@ int main(int argc, char **argv)
                 }
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag6==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag6==1)
         {
             ROS_INFO("pos1");
             // raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= bar_point[0][0]-0.8;
+            raw_data.position.x= bar_point[0][0]-0.6;
             raw_data.position.y= bar_point[0][1];
             raw_data.position.z= 1.5;
             raw_data.yaw =0; 
             last_request = ros::Time::now(); 
             // 闭环校正位置
-            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02 && fabs(imp.pz-raw_data.position.z)<0.05){
                 saveimg();
                 ROS_INFO("pos1 successed");
                 bar_path();
@@ -732,7 +794,7 @@ int main(int argc, char **argv)
                 flag7 = 1;
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag7==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag7==1)
         {
             ROS_INFO("pos planning"); 
             if(!path_point.empty()){
@@ -744,7 +806,7 @@ int main(int argc, char **argv)
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag8==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag8==1)
         {
             ROS_INFO("pos 3");
             int pps= path_point.size();
@@ -792,7 +854,7 @@ int main(int argc, char **argv)
                 }
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag10==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag10==1)
         {
             ROS_INFO("pos planning");       
             if(!path_point.empty()){
@@ -804,7 +866,7 @@ int main(int argc, char **argv)
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag11==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.5) && flag11==1)
         {
             ROS_INFO("pos 4");
             int pps= path_point.size();
@@ -816,7 +878,7 @@ int main(int argc, char **argv)
             raw_data.position.z= 1.5;
             raw_data.yaw =0;
             last_request = ros::Time::now();
-            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.yaw-raw_data.yaw)<0.02){
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04  && fabs(imp.yaw-raw_data.yaw)<0.02 && fabs(imp.pz-raw_data.position.z)<0.04){
                 ROS_INFO("pos 4 successed once");
                 ppi++;
             }
@@ -825,20 +887,32 @@ int main(int argc, char **argv)
                 ppi=0;
                 flag11=0;
                 flag12=1;
-                saveimg();
-                img_process();
             }          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(2) && flag12==1)
+         if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag12==1)
         {
-            ROS_INFO("pos5");
+            ROS_INFO("find land");
+            if((ig.x_dist!=0)&&(ig.y_dist!=0)){
+                ROS_INFO("find land fin");
+                flag12=0;
+                flag13=1;
+            }else{
+                saveimg();
+                img_process();
+            } 
+            last_request = ros::Time::now();          
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(0.5) && flag13==1)
+        {
+            ROS_INFO("land pos");
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= ig.x_dist;
-            raw_data.position.y= ig.y_dist;
-            raw_data.position.z= 0.5;
-            raw_data.yaw =0; 
-            if(fabs(imp.px-raw_data.position.x)<0.02 && fabs(imp.py-raw_data.position.y)<0.02 && fabs(imp.yaw-raw_data.yaw)<0.02){
-                ROS_INFO("pos5 successed");
+            raw_data.position.x = ig.x_dist;
+            raw_data.position.y = ig.y_dist;
+            raw_data.position.z = 0.25;
+            raw_data.yaw = 0;
+            if(fabs(imp.px-raw_data.position.x)<0.04 && fabs(imp.py-raw_data.position.y)<0.04 && fabs(imp.pz-raw_data.position.z)<0.03){
+                ROS_INFO("pos land successed");
+                saveimg();
                 break;
             }
             last_request = ros::Time::now();
