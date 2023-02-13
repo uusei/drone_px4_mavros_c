@@ -37,8 +37,6 @@
 
 ******************************************************************************************************/
 
-//定义标志位 共12个
-int flag1, flag2, flag3, flag4, flag5, flag6, flag7, flag8, flag9, flag10, flag11, flag12,flag13;
 // 保存图片序号定义
 int num_pic = 0;
 //当前imu位姿态 6轴  精确度4位 调用方法举例:imp.px
@@ -95,7 +93,7 @@ info_point ifp;
     比较选择最小距离
 */
 
-std::vector<double> cross_point,cross_line(2,1),path_line,line_resist;
+std::vector<double> cross_point,cross_line,path_line,line_resist;
 std::vector<std::vector<double>> path_point,path_resist;
 
 /*******************************************************************************************************/
@@ -162,7 +160,7 @@ int smooth_path(double target_x,double target_y){
     2:   需要避障
     */
     // 定义参数
-    double k,b,p2l;
+    double k,b;
     std::vector<int> direction_d,direction_br,direction_bg,direction_rd,direction_rbr,direction_rbg;
     path_resist.clear();
     // y-kx-b 在 [-0.4,0.4]的范围内
@@ -186,6 +184,8 @@ int smooth_path(double target_x,double target_y){
     }
     // 距离测算
     ifp.dist_dd=calculate_dist(target_x, target_y, imp.px, imp.py);
+    ifp.dist_rb=calculate_dist(imp.px,imp.py,br.px, br.py);
+    ifp.dist_gb=calculate_dist(imp.px,imp.py,bg.px, bg.py);
 
     int dy=(target_y-imp.py)>-0.3;
     int dx=(target_x-imp.px)>-0.3;
@@ -521,7 +521,6 @@ void transpoi(geometry_msgs::PoseStamped current_posi){
     current_posi.pose.orientation.z
     current_posi.pose.orientation.w
     */
-    // 实例化角度
     double ox=current_posi.pose.orientation.x;
     double oy =current_posi.pose.orientation.y;
     double oz=current_posi.pose.orientation.z;
@@ -570,19 +569,7 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
 
 int main(int argc, char **argv)
 {
-    flag1=1;
-    flag2=0;
-    flag3=0;
-    flag4=0;
-    flag5=0;
-    flag6=0;
-    flag7=0;
-    flag8=0;
-    flag9=0;
-    flag10=0;
-    flag11=0;
-    flag12=0;
-    flag13=0;
+    int flag=0;
     int ppi = 0;
     
     ros::init(argc, argv, "offb_node");
@@ -595,6 +582,7 @@ int main(int argc, char **argv)
     // 订阅当前的位置信息
     ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("/mavros/local_position/pose", 10, posi_read);
+
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
             ("mavros/setpoint_position/local", 10);
     // 新定义的发布
@@ -675,7 +663,7 @@ int main(int argc, char **argv)
     // 第二阶段 飞行路径计算与设置
     while(ros::ok()){
         // x0m y0m z1.5m 按照坐标系来
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag1==1)
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==0)
         {
             ROS_INFO("pos_init");           
             // raw_data.coordinate_frame = 8;  //flu坐标系
@@ -687,12 +675,11 @@ int main(int argc, char **argv)
             last_request = ros::Time::now();
             if((fabs(imp.px-raw_data.position.x)<0.04) && (fabs(imp.py-raw_data.position.y)<0.04)){
                 ROS_INFO("init successed");
-                flag1 = 0;
-                flag2 = 1;
+                flag++;
             }
         }
         // 飞到第2个点
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag2==1)
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==1)
         {
             ROS_INFO("pos1");
             // raw_data.coordinate_frame = 8;  //flu坐标系
@@ -709,24 +696,22 @@ int main(int argc, char **argv)
                 saveimg();
                 ROS_INFO("pos1 successed");
                 bar_path();
-                flag2 = 0;
-                flag3 = 1;
+                flag++;
             }
         }
         //路径规划
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag3==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==2)
         {
             ROS_INFO("pos planning"); 
             if(!path_point.empty()){
                 ROS_INFO("pos planning fin");
-                flag3=0;
-                flag4=1;
+                flag++;
             }else{
                 select_path(bar_point[0][0]-0.6,bar_point[0][1]);
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag4==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==3)
         {
             ROS_INFO("pos 2");
             int pps= path_point.size();
@@ -744,15 +729,14 @@ int main(int argc, char **argv)
             }
             if(ppi>=pps){
                 ROS_INFO("pos2 planning successed");
-                flag4 = 0;
-                flag5 = 1;
+                flag++;
                 ppi = 0;
                 path_point.clear();
             }          
         }
 
         // 旋转
-        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag5==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag==4)
         {
             ROS_INFO("pos r");
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
@@ -767,15 +751,14 @@ int main(int argc, char **argv)
                 ROS_INFO("pos r successed"); 
                 ROS_INFO("dist:%f",ig.dist);
                 if(br.yaw>(M_PI*2)){
-                    flag5=0;
-                    flag6=1;
+                    flag++;
                     br.yaw=0;
                 }else{
                     br.yaw=br.yaw+M_PI/18;
                 }
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag6==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==5)
         {
             ROS_INFO("pos1");
             // raw_data.coordinate_frame = 8;  //flu坐标系
@@ -790,23 +773,21 @@ int main(int argc, char **argv)
                 saveimg();
                 ROS_INFO("pos1 successed");
                 bar_path();
-                flag6 = 0;
-                flag7 = 1;
+                flag++;
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag7==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==6)
         {
             ROS_INFO("pos planning"); 
             if(!path_point.empty()){
                 ROS_INFO("pos planning fin");
-                flag7=0;
-                flag8=1;
+                flag++;
             }else{
-                select_path(bar_point[1][0]-0.6,bar_point[1][1]);
+                select_path(bar_point[1][0] - 0.6, bar_point[1][1]);
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag8==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==7)
         {
             ROS_INFO("pos 3");
             int pps= path_point.size();
@@ -824,14 +805,13 @@ int main(int argc, char **argv)
             }
             if(ppi>=pps){
                 ROS_INFO("pos3 planning successed");
-                flag8 = 0;
-                flag9 = 1;
+                flag++;
                 ppi = 0;
                 path_point.clear();
             }          
         }
         // 旋转
-        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag9==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.3) && flag==8)
         {
             ROS_INFO("pos r2");
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
@@ -846,27 +826,25 @@ int main(int argc, char **argv)
                 ROS_INFO("pos r2 successed"); 
                 ROS_INFO("dist:%f",ig.dist);
                 if(bg.yaw>(M_PI*2)){
-                    flag9=0;
-                    flag10=1;
+                    flag++;
                     bg.yaw=0;
                 }else{
                     bg.yaw=bg.yaw+M_PI/18;
                 }
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag10==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==9)
         {
             ROS_INFO("pos planning");       
             if(!path_point.empty()){
                 ROS_INFO("pos planning fin");
-                flag10=0;
-                flag11=1;
+                flag++;
             }else{
                 select_path(0.1,1.8);
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(0.5) && flag11==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.5) && flag==10)
         {
             ROS_INFO("pos 4");
             int pps= path_point.size();
@@ -885,24 +863,22 @@ int main(int argc, char **argv)
             if(ppi>=pps){
                 ROS_INFO("pos4 planning successed");
                 ppi=0;
-                flag11=0;
-                flag12=1;
+                flag++;
             }          
         }
-         if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag12==1)
+         if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==11)
         {
             ROS_INFO("find land");
             if((ig.x_dist!=0)&&(ig.y_dist!=0)){
                 ROS_INFO("find land fin");
-                flag12=0;
-                flag13=1;
+                flag++;
             }else{
                 saveimg();
                 img_process();
             } 
             last_request = ros::Time::now();          
         }
-        if ( ros::Time::now()-last_request>ros::Duration(0.5) && flag13==1)
+        if ( ros::Time::now()-last_request>ros::Duration(0.5) && flag==12)
         {
             ROS_INFO("land pos");
             raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;

@@ -17,7 +17,7 @@
 	source ~/catkin_ws/devel/setup.bash
 
 # px4 gazebo sitl 编译 但是不建议使用该方法运行
-	make px4_sitl gazebo
+	DONT_RUN=1 make px4_sitl gazebo
 
 # px4 的直接启动 launch文件可以搜索教程自己改
 
