@@ -56,6 +56,7 @@ class imup{
     */
         double px, py, pz, roll, pitch, yaw;
         //  内联函数
+        // 4元数坐标转换
         void transpoi(geometry_msgs::PoseStamped current_posi);
 };
 // 四元素坐标轴转换
@@ -186,20 +187,22 @@ class info_point:public imup{
     public:
     /*
         变量说明:
+        1.普通变量:
         is_x,is_y -> 是否和 x  y 轴平行
         k  , kp -> 和目标点的斜率 和垂直方向的斜率
         dist_rb,dist_gb,dist_dd -> 目标点，杆子与飞机距离距离
-        path_point -> 无人机路径点
-        path_resist -> 障碍物点
-        cross_point -> 待选择的距离
-        bar_point -> 插入中间安全点的距离
-        通过障碍物点确定路径点
-        比较选择最小距离
-        包含line 的变量是后面等待传入二维矩阵的向量
     */
-        bool is_x,is_y;
-        double k,kp,b,dist_rb,dist_gb,dist_dd;
-
+        bool is_x, is_y;
+        double k, kp, b, dist_rb, dist_gb, dist_dd;
+    /*
+        2.向量和矩阵:
+        path_point -> 无人机路径点 
+        path_resist -> 障碍物点 
+        cross_point -> 待选择的路径 
+        bar_point -> 插入中间安全点的距离 第三版避障特性
+        通过障碍物点确定路径点比较选择最小距离
+        包含 line 的向量是后面等待传入二维矩阵的向量
+    */
         std::vector<double> cross_point, cross_line, path_line, line_resist, bar_line;
         std::vector<std::vector<double>> path_point, path_resist, bar_point;
         //  构造函数
@@ -562,7 +565,7 @@ int main(int argc, char **argv)
             ("mavros/state", 10, state_cb);
     // 订阅图形话题
     ros::Subscriber image_sub = nh.subscribe<sensor_msgs::CompressedImage>
-        ("/image_raw/compressed", 1, imageCallback);
+        ("/realsense_plugin/camera/color/image_raw/compressed", 1, imageCallback);
     // 订阅当前的位置信息
     ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("/mavros/local_position/pose", 10, posi_read);
