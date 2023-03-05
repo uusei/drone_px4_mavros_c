@@ -7,11 +7,12 @@
 ·图像读取保存</br>
 ·避障算法实现</br>
 ·图像识别降落</br>
+·激光雷达信息转换</br>
 </br>
 <h2>待实现的功能：</h2>
+·舵机控制实现
 </br>
-·距离测量</br>
-</br>
+
 
 # source 环境变量
 	source ~/catkin_ws/devel/setup.bash
