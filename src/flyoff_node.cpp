@@ -566,6 +566,8 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     功能描述：
         1 执行飞行 降落功能
         2 接受话题 发布飞行话题
+        /realsense_plugin/camera/color/image_raw/compressed
+        /image_raw/compressed
 */
 /*******************************************************************************************************/
 
@@ -605,7 +607,6 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
-
     geometry_msgs::Pose2D pose2d;
     
     mavros_msgs::PositionTarget raw_data;

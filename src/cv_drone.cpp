@@ -2,7 +2,6 @@
     节点名：gazebo 仿真 图像处理
     节点描述： 测试 仿真
  */
-
 // 引入类 这些东西可以在rostopic 里面找到
 #include <ros/ros.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -13,6 +12,7 @@
 #include <mavros_msgs/State.h>
 #include <image_transport/image_transport.h>
 #include "sensor_msgs/image_encodings.h"
+#include "sensor_msgs/LaserScan.h"
 // opencv 库
 #include "opencv2/opencv.hpp"
 #include <opencv2/imgproc/imgproc.hpp>
@@ -25,21 +25,22 @@
 #include <iostream>
 #include<cmath>
 #include <vector>
+#include<numeric>
 #include <ctime>
 
-//结构体 绿色杆子位置
+//结构体 障碍物1位置
 struct bar_g{
-    double px=2.5;
-    double py=1.5;
-    double yaw=0;
+    double px = 1.375;
+    double py = -0.875;
+    double yaw = 0;
 };
 bar_g bg;
 
-//结构体 红色杆子位置
+//结构体 障碍物2位置
 struct bar_r{
-    double px=1;
-    double py=1;
-    double yaw=0;
+    double px = 0.625;
+    double py = -0.875;
+    double yaw = 0;
 };
 bar_r br;
 /*************************************************************************/
@@ -107,13 +108,22 @@ class info_img: public imup{
             dist -> 和目标点的 x , y 距离
     */
         cv::Mat imgCallback;
-        int width, height, num_pic;
+        int width, height, count, num_pic;
         double dist, x_dist, y_dist;
+
+        std::vector<double> scratch_line, departure_x, departure_y, departure_info;
+        std::vector<std::vector<double>> scratch_info;
         //  构造函数
         info_img();
         //  内联函数
         // 图像处理:降落处理
         void img_process();
+        // 图像处理:抓取处理
+        void img_scratch();
+        // 图像处理:投放处理
+        void img_departure();
+
+        void departure_mean();
         // 图像保存
         void saveimg();
 };
@@ -121,6 +131,7 @@ info_img ig;
 
 info_img::info_img(){
     num_pic = 0;
+    count = 0;
 }
 void info_img::saveimg(){
     num_pic++;
@@ -178,8 +189,131 @@ void info_img::img_process(){
             y_dist= (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
             std::cout<<"x"<<x_dist<<std::endl;
             std::cout<<"y"<<y_dist<<std::endl;
+
         } 
     }
+}
+void info_img::img_scratch(){
+    cv::Mat read,hsv,mask,res,gray,opened,kernel;
+
+    std::vector<std::vector<cv::Point>> contours, cnts;
+    std::vector<cv::Point> approx;
+    std::vector<cv::Vec4i> hier;
+
+    double dpx = px;
+    double dpy = py;
+    read = imgCallback;
+    cv::cvtColor(read, hsv, CV_BGR2HSV);
+    cv::inRange(hsv, cv::Scalar(0, 0, 0),cv::Scalar(255, 60, 255),mask);
+    cv::bitwise_and(read, read, res, mask=mask);
+    cv::blur(res, res,cv::Size(5, 5));
+    // 去噪点 这里编译不通过 直接代替源码数值
+    kernel = cv::getStructuringElement(0, cv::Size(5, 5));
+    cv::morphologyEx(gray,opened, 3, kernel);
+    cv::morphologyEx(opened,opened, 3, kernel);
+
+    cv::cvtColor(opened, gray, CV_BGR2GRAY);
+    cv::threshold(gray, gray, 10, 255, CV_THRESH_BINARY);
+    
+    cv::findContours(gray,cnts,hier, CV_RETR_TREE,CV_CHAIN_APPROX_SIMPLE);
+    cv::imwrite("/home/uusei/img/0.jpg", gray);
+
+    for( int k = 0; k < cnts.size(); k++)
+    {
+        approxPolyDP(cnts.at(k), approx, arcLength(cnts.at(k), true)*0.02, true);
+        cv::Rect  rect = cv::boundingRect(cnts.at(k));
+        std::cout<<" the quantity of edge "<<approx.size()<<std::endl;
+        std::cout<<"w"<<rect.width<<std::endl;
+        std::cout<<"h"<<rect.height<<std::endl;
+        if ((hier[k][2] == -1)&&(cv::contourArea(cnts.at(k)) >= 2500) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=50)&& (rect.width <= 290)&& (rect.height >=50)&& (rect.height <= 200) && (approx.size() >= 7)&& (approx.size() <= 9)){
+            contours.push_back(cnts.at(k));
+            std::cout<<"get contours"<<std::endl;
+        }
+    }
+    scratch_info.clear();
+    if((contours.size()>0)&&(contours.size()<4)){
+        for(int k = 0; k < contours.size(); k++){
+            cv::Rect  rect = cv::boundingRect(contours.at(k));
+            int r_x = rect.x + rect.width / 2;
+            int r_y = rect.y + rect.height / 2;
+            double para_kx = 7.0 / rect.width;
+            double para_ky = 7.0 / rect.height;
+            std::cout<<"para_kx: "<<para_kx<<std::endl;
+            std::cout<<"para_ky: "<<para_ky<<std::endl;
+            double scratch_x_dist= (r_y - 240) * para_ky * 0.01 * (-1) + dpx;
+            double scratch_y_dist= (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
+            std::cout<<"x"<<scratch_x_dist<<std::endl;
+            std::cout<<"y"<<scratch_y_dist<<std::endl;
+            scratch_line.push_back(scratch_x_dist);
+            scratch_line.push_back(scratch_y_dist);
+            scratch_info.push_back(scratch_line);
+            scratch_line.clear();
+        }       
+    }
+}
+void info_img::img_departure(){
+    cv::Mat read,hsv,mask,res,gray,opened,kernel;
+
+    std::vector<std::vector<cv::Point>> contours, cnts;
+    std::vector<cv::Point> approx;
+    std::vector<cv::Vec4i> hier;
+
+    double dpx = px;
+    double dpy = py;
+    read = imgCallback;
+    cv::cvtColor(read, hsv, CV_BGR2HSV);
+    cv::inRange(hsv, cv::Scalar(0, 0, 0),cv::Scalar(255, 60, 255),mask);
+    cv::bitwise_and(read, read, res, mask=mask);
+    cv::blur(res, res,cv::Size(5, 5));
+    // 去噪点 这里编译不通过 直接代替源码数值
+    kernel = cv::getStructuringElement(0, cv::Size(5, 5));
+    cv::morphologyEx(gray,opened, 3, kernel);
+    cv::morphologyEx(opened,opened, 3, kernel);
+
+    cv::cvtColor(opened, gray, CV_BGR2GRAY);
+    cv::threshold(gray, gray, 10, 255, CV_THRESH_BINARY);
+    
+    cv::findContours(gray,cnts,hier, CV_RETR_TREE,CV_CHAIN_APPROX_SIMPLE);
+    cv::imwrite("/home/uusei/img/0.jpg", gray);
+    for( int k = 0; k < cnts.size(); k++ )
+    {
+        approxPolyDP(cnts.at(k), approx, arcLength(cnts.at(k), true)*0.02, true);
+        cv::Rect  rect = cv::boundingRect(cnts.at(k));
+        std::cout<<" the quantity of edge "<<approx.size()<<std::endl;
+        std::cout<<"w"<<rect.width<<std::endl;
+        std::cout<<"h"<<rect.height<<std::endl;
+        if ((hier[k][2] == -1)&&(cv::contourArea(cnts.at(k)) >= 2500) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=50)&& (rect.width <= 290)&& (rect.height >=50)&& (rect.height <= 200) && (approx.size() >= 7)&& (approx.size() <= 9)){
+            contours.push_back(cnts.at(k));
+            std::cout<<"get contours"<<std::endl;
+        }
+    }
+    for( int k = 0; k < contours.size(); k++ )
+    {
+        cv::Rect  rect = cv::boundingRect(contours.at(k));
+        int r_x = rect.x + rect.width / 2;
+        int r_y = rect.y + rect.height / 2;
+        double para_kx = 9.7 / rect.width;
+        double para_ky = 9.7 / rect.height;
+        std::cout<<"para_kx: "<<para_kx<<std::endl;
+        std::cout<<"para_ky: "<<para_ky<<std::endl;
+        double departure_x_dist = (r_y - 240) * para_ky * 0.01 * (-1) + dpx;
+        double departure_y_dist = (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
+        std::cout<<"x"<<departure_x_dist<<std::endl;
+        std::cout<<"y"<<departure_y_dist<<std::endl;
+        departure_x.push_back(departure_x_dist);
+        departure_y.push_back(departure_y_dist);
+    }
+}
+void info_img::departure_mean(){
+    departure_info.clear();
+    double sumx = std::accumulate(std::begin(departure_x), std::end(departure_x), 0.0);
+    double meanx =  sumx / departure_x.size();
+    double sumy = std::accumulate(std::begin(departure_y), std::end(departure_y), 0.0);
+    double meany =  sumy / departure_y.size();
+    departure_x.clear();
+    departure_y.clear();
+    departure_info.push_back(meanx);
+    departure_info.push_back(meany);
 }
 /*************************************************************************/
 // 避障类 继承坐标
@@ -190,10 +324,10 @@ class info_point:public imup{
         1.普通变量:
         is_x,is_y -> 是否和 x  y 轴平行
         k  , kp -> 和目标点的斜率 和垂直方向的斜率
-        dist_rb,dist_gb,dist_dd -> 目标点，杆子与飞机距离距离
+        dist_rb,dist_gb,dist_dd -> 目标点，杆子与飞机距离距离x1
     */
         bool is_x, is_y;
-        double k, kp, b, dist_rb, dist_gb, dist_dd;
+        double k, kp, b, dist_rb, dist_gb, dist_dd, angle;
     /*
         2.向量和矩阵:
         path_point -> 无人机路径点 
@@ -225,6 +359,12 @@ class info_point:public imup{
         void inplug2point(double origin_x,double origin_y,double target_x,double target_y);
         // 决定先去哪个杆子 路径最短
         void bar_path();
+        // 方向设置
+        void direction2point(double target_x,double target_y);
+        // 雷达检测坐标位置
+        void lidar2pos(sensor_msgs::LaserScan laser);
+        // 坐标换算
+        std::vector<float> convert_pos(double angle,double dist);
 };
 info_point ifp;
 
@@ -528,6 +668,58 @@ void info_point::bar_path(){
         bar_point.push_back(bar_line);
     }
 }
+void info_point::direction2point(double target_x,double target_y){
+    angle = std::atan2(target_y - py, target_x - px);
+    std::cout<<"output angle"<<angle<<std::endl;
+}
+void info_point::lidar2pos(sensor_msgs::LaserScan laser){
+    std::vector<float>  read_laser(laser.ranges);
+    std::vector<float>::iterator itc0, itc1, it0, it1;
+    it0 = read_laser.begin()+270;
+    it1 = read_laser.begin()+179;
+    int bar1 = 270;
+    int bar2 = 179;
+    std::cout<<"comparing"<<std::endl;
+    for(bar1;bar1<359;bar1++){
+        if(((*it0-*(it0 + 1))>0.6) && (*(it0 + 1)>0.4)){
+            std::cout<<"compare fin"<<std::endl;
+            double angle0 = (bar1-359)/180.0*M_PI;
+            double dist0 = *(it0 + 1);
+            std::vector<float> convert0= convert_pos(angle0, dist0);
+            itc0 = convert0.begin();
+            bg.px = *itc0;
+            bg.py = *(itc0+1);
+        }
+        it0++;
+    }
+    for(bar2;bar2<269;bar2++){
+        if(((*(it1)-*(it1 + 1))>0.6) && (*(it1 + 1)>0.5)){
+            std::cout<<"compare fin"<<std::endl;
+            double angle1 = (bar2-359)/180.0*M_PI;
+            double dist1 = *(it1 + 1);
+
+            std::vector<float> convert1=convert_pos(angle1, dist1);
+            itc1=convert1.begin();
+            br.px = *itc1;
+            br.py = *(itc1+1);
+        }
+        it1++;
+    }
+}
+std::vector<float> info_point::convert_pos(double angle,double dist){
+    std::vector<float> target;
+    std::cout<<"angle:"<<angle<<std::endl;
+    std::cout<<"dist:"<<dist<<std::endl;
+    float x_dist = std::cos(angle)*dist;
+    float y_dist = std::sin(angle)*dist;
+    float fin_x = x_dist+px;
+    float fin_y = y_dist+py;
+    std::cout<<"fin_x:"<<fin_x<<std::endl;
+    std::cout<<"fin_y:"<<fin_y<<std::endl;
+    target.push_back(fin_x);
+    target.push_back(fin_y);
+    return target;
+}
 /*************************************************************************/
 /*
     功能区：回调函数组
@@ -550,10 +742,17 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     ig.transpoi(current_posi);
     ifp.transpoi(current_posi);
 }
+sensor_msgs::LaserScan laser_call;
+void laser_read(const sensor_msgs::LaserScan::ConstPtr& msg){
+    laser_call = *msg;
+    
+}
 /*************************************************************************/
 /*
     功能区：主函数
     描述：offboard主函数
+    /realsense_plugin/camera/color/image_raw/compressed
+    /image_raw/compressed
 */
 /*************************************************************************/
 int main(int argc, char **argv)
@@ -561,15 +760,19 @@ int main(int argc, char **argv)
     int flag=0;
      ros::init(argc, argv, "offb_node");
     ros::NodeHandle nh;
+    // 订阅话题
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
             ("mavros/state", 10, state_cb);
     // 订阅图形话题
     ros::Subscriber image_sub = nh.subscribe<sensor_msgs::CompressedImage>
-        ("/realsense_plugin/camera/color/image_raw/compressed", 1, imageCallback);
+        ("/image_raw/compressed", 1, imageCallback);
     // 订阅当前的位置信息
     ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("/mavros/local_position/pose", 10, posi_read);
 
+    ros::Subscriber laser_sub = nh.subscribe<sensor_msgs::LaserScan>
+            ("/lidar2Dscan", 10, laser_read);
+    // 发布话题
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
             ("mavros/setpoint_position/local", 10);
     // 新定义的发布
@@ -590,7 +793,6 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
-
     geometry_msgs::Pose2D pose2d;
     
     mavros_msgs::PositionTarget raw_data;
@@ -599,7 +801,7 @@ int main(int argc, char **argv)
     pose.pose.position.x = 0;
     pose.pose.position.y = 0;
     pose.pose.position.z = 1.5;
-
+    
     //必须要有设定点才能飞
     for(int i = 2; ros::ok() && i > 0; --i){
         local_pos_pub.publish(pose);
@@ -619,7 +821,7 @@ int main(int argc, char **argv)
     while(ros::ok()){
         //判断一下现在模式是否正确解锁
         if( current_state.mode != "OFFBOARD" &&
-              (ros::Time::now() - last_request > ros::Duration(3.0))){
+              (ros::Time::now() - last_request > ros::Duration(1.0))){
             if( set_mode_client.call(offb_set_mode) &&
                 offb_set_mode.response.mode_sent){
                 ROS_INFO("Offboard enabled");
@@ -629,7 +831,7 @@ int main(int argc, char **argv)
         else
         {
             if( !current_state.armed &&
-                (ros::Time::now() - last_request > ros::Duration(3.0))){
+                (ros::Time::now() - last_request > ros::Duration(1.0))){
                 if( arming_client.call(arm_cmd) && arm_cmd.response.success)
                 {
                      ROS_INFO("Vehicle armed");
@@ -642,31 +844,47 @@ int main(int argc, char **argv)
         pose2d.theta=ifp.yaw;
         xy_yaw_pub.publish(pose2d);
         local_pos_pub.publish(pose);
-        if ( ros::Time::now()-last_request>ros::Duration(10))
+        if (ros::Time::now()-last_request>ros::Duration(8))
             break;
         ros::spinOnce();
         rate.sleep();
     }
     // 第二阶段 飞行路径计算与设置
     while(ros::ok()){
-        // x0m y0m z1.5m 按照坐标系来
         if ( ros::Time::now()-last_request>ros::Duration(1) && flag==0)
         {
-            ROS_INFO("pos_init");           
+            ROS_INFO("pos_init");          
             // raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
-            raw_data.position.z= 1.5;
+            raw_data.position.z= 0.5;
             raw_data.yaw =0;
             last_request = ros::Time::now();
-            if((fabs(ifp.px-raw_data.position.x)<0.04) && (fabs(ifp.py-raw_data.position.y)<0.04)){
+            if(fabs(ifp.yaw - raw_data.yaw)<0.02){
                 ROS_INFO("init successed");
-                ig.saveimg();
+
                 flag++;
             }
         }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==1)
+        {
+            ROS_INFO("pos_0");           
+            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= 1;
+            raw_data.position.y= 0;
+            raw_data.position.z= 0.5;
+            raw_data.yaw = 0;
+            ifp.lidar2pos(laser_call);
+            last_request = ros::Time::now();
+            if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
+                ROS_INFO("pos_0 successed");
+                flag++;
 
+            }
+        }
+        
         pose2d.x=ifp.px;
         pose2d.y=ifp.py;
         pose2d.theta=ifp.yaw;
@@ -675,6 +893,5 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
-
     return 0;
 }
