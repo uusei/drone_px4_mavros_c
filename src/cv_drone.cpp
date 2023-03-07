@@ -106,6 +106,7 @@ class info_img: public imup{
         变量说明:
             imgCallback -> 图片矩阵
             dist -> 和目标点的 x , y 距离
+
     */
         cv::Mat imgCallback;
         int width, height, count, num_pic;
@@ -122,7 +123,7 @@ class info_img: public imup{
         void img_scratch();
         // 图像处理:投放处理
         void img_departure();
-
+        // 投放求平均值
         void departure_mean();
         // 图像保存
         void saveimg();
@@ -133,6 +134,7 @@ info_img::info_img(){
     num_pic = 0;
     count = 0;
 }
+
 void info_img::saveimg(){
     num_pic++;
     std::string string_pic = std::to_string(num_pic);
@@ -140,6 +142,7 @@ void info_img::saveimg(){
     cv::imwrite(path0, imgCallback);
     cv::waitKey(50);
 }
+
 void info_img::img_process(){
     cv::Mat read,hsv,hsv0,hsv1,mask,res,gray,opened,kernel;
     std::vector<std::vector<cv::Point>> contours, cnts;
@@ -189,19 +192,21 @@ void info_img::img_process(){
             y_dist= (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
             std::cout<<"x"<<x_dist<<std::endl;
             std::cout<<"y"<<y_dist<<std::endl;
-
         } 
     }
 }
 void info_img::img_scratch(){
+    // python 里面不用定义变量类型
     cv::Mat read,hsv,mask,res,gray,opened,kernel;
 
     std::vector<std::vector<cv::Point>> contours, cnts;
     std::vector<cv::Point> approx;
     std::vector<cv::Vec4i> hier;
 
+    // 当前的位置
     double dpx = px;
     double dpy = py;
+    //输入的图像
     read = imgCallback;
     cv::cvtColor(read, hsv, CV_BGR2HSV);
     cv::inRange(hsv, cv::Scalar(0, 0, 0),cv::Scalar(255, 60, 255),mask);
@@ -244,6 +249,7 @@ void info_img::img_scratch(){
             double scratch_y_dist= (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
             std::cout<<"x"<<scratch_x_dist<<std::endl;
             std::cout<<"y"<<scratch_y_dist<<std::endl;
+            // 抓取目标的位置 x，y
             scratch_line.push_back(scratch_x_dist);
             scratch_line.push_back(scratch_y_dist);
             scratch_info.push_back(scratch_line);
@@ -257,9 +263,10 @@ void info_img::img_departure(){
     std::vector<std::vector<cv::Point>> contours, cnts;
     std::vector<cv::Point> approx;
     std::vector<cv::Vec4i> hier;
-
+    // 当前的位置
     double dpx = px;
     double dpy = py;
+    //输入的图像
     read = imgCallback;
     cv::cvtColor(read, hsv, CV_BGR2HSV);
     cv::inRange(hsv, cv::Scalar(0, 0, 0),cv::Scalar(255, 60, 255),mask);
@@ -272,16 +279,18 @@ void info_img::img_departure(){
 
     cv::cvtColor(opened, gray, CV_BGR2GRAY);
     cv::threshold(gray, gray, 10, 255, CV_THRESH_BINARY);
-    
+    // hier就是反映边缘上下级包含关系
     cv::findContours(gray,cnts,hier, CV_RETR_TREE,CV_CHAIN_APPROX_SIMPLE);
     cv::imwrite("/home/uusei/img/0.jpg", gray);
     for( int k = 0; k < cnts.size(); k++ )
     {
+        // 读取形状边的数量 一个圆边数量是8 正方形是4
         approxPolyDP(cnts.at(k), approx, arcLength(cnts.at(k), true)*0.02, true);
         cv::Rect  rect = cv::boundingRect(cnts.at(k));
         std::cout<<" the quantity of edge "<<approx.size()<<std::endl;
         std::cout<<"w"<<rect.width<<std::endl;
         std::cout<<"h"<<rect.height<<std::endl;
+        // hier[k][2] == -1 表示最内侧边缘
         if ((hier[k][2] == -1)&&(cv::contourArea(cnts.at(k)) >= 2500) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=50)&& (rect.width <= 290)&& (rect.height >=50)&& (rect.height <= 200) && (approx.size() >= 7)&& (approx.size() <= 9)){
             contours.push_back(cnts.at(k));
             std::cout<<"get contours"<<std::endl;
@@ -292,6 +301,7 @@ void info_img::img_departure(){
         cv::Rect  rect = cv::boundingRect(contours.at(k));
         int r_x = rect.x + rect.width / 2;
         int r_y = rect.y + rect.height / 2;
+        // 计算相距距离
         double para_kx = 9.7 / rect.width;
         double para_ky = 9.7 / rect.height;
         std::cout<<"para_kx: "<<para_kx<<std::endl;
@@ -300,6 +310,7 @@ void info_img::img_departure(){
         double departure_y_dist = (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
         std::cout<<"x"<<departure_x_dist<<std::endl;
         std::cout<<"y"<<departure_y_dist<<std::endl;
+        // 投放目标的位置 x，y
         departure_x.push_back(departure_x_dist);
         departure_y.push_back(departure_y_dist);
     }
@@ -881,7 +892,57 @@ int main(int argc, char **argv)
             if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
                 ROS_INFO("pos_0 successed");
                 flag++;
-
+            }
+        }
+        //路径规划
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==2)
+        {
+            ROS_INFO("pos planning"); 
+            if(!ifp.path_point.empty()){
+                ROS_INFO("pos planning fin");
+                flag++;
+            }else{
+                ifp.select_path(ifp.bar_point[0][0]-0.6,ifp.bar_point[0][1]);
+            } 
+            last_request = ros::Time::now();          
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==3)
+        {
+            ROS_INFO("pos 2");
+            int pps= ifp.path_point.size();
+            ROS_INFO("x:%f",ifp.path_point[ppi][0]);
+            ROS_INFO("y:%f",ifp.path_point[ppi][1]);
+            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= ifp.path_point[ppi][0];
+            raw_data.position.y= ifp.path_point[ppi][1];
+            raw_data.position.z= 1.5;
+            raw_data.yaw =0; 
+            last_request = ros::Time::now();
+            if(fabs(ifp.px-raw_data.position.x)<0.04 && fabs(ifp.py-raw_data.position.y)<0.04 && fabs(ifp.yaw-raw_data.yaw)<0.02){
+                ROS_INFO("pos 2 successed once");
+                ppi++;
+            }
+            if(ppi>=pps){
+                ROS_INFO("pos2 planning successed");
+                flag++;
+                ppi = 0;
+                ifp.path_point.clear();
+            }          
+        }
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==1)
+        {
+            ROS_INFO("pos_0");           
+            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= 1;
+            raw_data.position.y= 0;
+            raw_data.position.z= 0.5;
+            raw_data.yaw = 0;
+            ifp.lidar2pos(laser_call);
+            last_request = ros::Time::now();
+            if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
+                ROS_INFO("pos_0 successed");
+                flag++;
             }
         }
         
