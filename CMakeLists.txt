@@ -213,9 +213,19 @@ include_directories(
 add_executable(flyoff_node src/flyoff_node.cpp)
 add_dependencies(flyoff_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(flyoff_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+
 add_executable(cv_drone_node src/cv_drone.cpp)
 add_dependencies(cv_drone_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(cv_drone_node ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+
+add_executable(demo_v_node src/demo_v.cpp)
+add_dependencies(demo_v_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(demo_v_node ${catkin_LIBRARIES})
+
+add_executable(demo_h_node src/demo_h.cpp)
+add_dependencies(demo_h_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(demo_h_node ${catkin_LIBRARIES})
+
 
 
 

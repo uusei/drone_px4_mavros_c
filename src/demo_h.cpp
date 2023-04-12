@@ -12,14 +12,6 @@
 #include <mavros_msgs/State.h>
 #include <image_transport/image_transport.h>
 #include "sensor_msgs/image_encodings.h"
-#include "sensor_msgs/LaserScan.h"
-// opencv 库
-#include "opencv2/opencv.hpp"
-#include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/types_c.h>
-#include <opencv2/imgproc.hpp>
-#include <cv_bridge/cv_bridge.h>
 // C++ 标准库
 #include <string> 
 #include <iostream>
@@ -99,234 +91,6 @@ void imup::transpoi(geometry_msgs::PoseStamped current_posi){
     pz =  ceil(current_posi.pose.position.z * 10000)/10000;
 }
 /*************************************************************************/
-// 图像处理类 坐标信息继承自坐标处理
-class info_img: public imup{
-    public:
-    /*
-        变量说明:
-            imgCallback -> 图片矩阵
-            dist -> 和目标点的 x , y 距离
-
-    */
-        cv::Mat imgCallback;
-        int width, height, count, num_pic;
-        double dist, x_dist, y_dist;
-
-        std::vector<double> scratch_line, departure_x, departure_y, departure_info;
-        std::vector<std::vector<double>> scratch_info;
-        //  构造函数
-        info_img();
-        //  内联函数
-        // 图像处理:降落处理
-        void img_process();
-        // 图像处理:抓取处理
-        void img_scratch();
-        // 图像处理:投放处理
-        void img_departure();
-        // 投放求平均值
-        void departure_mean();
-        // 图像保存
-        void saveimg();
-};
-info_img ig;
-
-info_img::info_img(){
-    num_pic = 0;
-    count = 0;
-}
-
-void info_img::saveimg(){
-    num_pic++;
-    std::string string_pic = std::to_string(num_pic);
-    std::string path0 = "/home/uusei/img/shoot"+string_pic+".jpg";
-    cv::imwrite(path0, imgCallback);
-    cv::waitKey(50);
-}
-
-void info_img::img_process(){
-    cv::Mat read,hsv,hsv0,hsv1,mask,res,gray,opened,kernel;
-    std::vector<std::vector<cv::Point>> contours, cnts;
-    std::vector<cv::Point> approx;
-    std::vector<cv::Vec4i> hier;
-
-    double dpx = px;
-    double dpy = py;
-    read = imgCallback;
-    cv::blur(read, res,cv::Size(5, 5));
-    //  二值化
-    cv::cvtColor(res, gray, CV_BGR2GRAY);
-    cv::threshold(gray, gray, 15, 255, CV_THRESH_BINARY); 
-    // 去噪点 这里编译不通过 直接代替源码数值
-    kernel = cv::getStructuringElement(0, cv::Size(5, 5));
-    cv::morphologyEx(gray,opened, 3, kernel);
-    cv::morphologyEx(opened,opened, 3, kernel);
-    cv::bitwise_not(opened,opened);
-    // 边缘检测
-    cv::findContours(opened,cnts,hier,CV_RETR_EXTERNAL,CV_CHAIN_APPROX_SIMPLE);
-    std::cout<<cnts.size()<<std::endl;
-    // contours.resize(cnts.size());
-    cv::imwrite("/home/uusei/img/0.jpg", opened);
-    for( int k = 0; k < cnts.size(); k++ )
-    {
-        cv::Rect  rect = cv::boundingRect(cnts.at(k));
-        std::cout<<"w"<<rect.width<<std::endl;
-        std::cout<<"h"<<rect.height<<std::endl;
-        if ((cv::contourArea(cnts.at(k)) >= 3000) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=150)&& (rect.width <= 270)&& (rect.height >=150)&& (rect.height <= 270)){
-            contours.push_back(cnts.at(k));
-            std::cout<<"get contours"<<std::endl;
-        }
-    }
-    for( int k = 0; k < contours.size(); k++ )
-    {
-        cv::Rect  rect = cv::boundingRect(contours.at(k));
-        approxPolyDP(contours[k], approx, arcLength(contours[k], true)*0.02, true);
-        std::cout<<" the quantity of edge "<<approx.size()<<std::endl;
-        if((approx.size()<2)||(approx.size()>7)){
-            int r_x = rect.x + rect.width / 2;
-            int r_y = rect.y + rect.height / 2;
-            double para_kx = 60.00 / rect.width;
-            double para_ky = 60.00 / rect.height;
-            std::cout<<"para_kx: "<<para_kx<<std::endl;
-            std::cout<<"para_ky: "<<para_ky<<std::endl;
-            x_dist= (r_y - 240) * para_ky * 0.01 * (-1) + dpx;
-            y_dist= (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
-            std::cout<<"x"<<x_dist<<std::endl;
-            std::cout<<"y"<<y_dist<<std::endl;
-        } 
-    }
-}
-void info_img::img_scratch(){
-    // python 里面不用定义变量类型
-    cv::Mat read,hsv,mask,res,gray,opened,kernel;
-
-    std::vector<std::vector<cv::Point>> contours, cnts;
-    std::vector<cv::Point> approx;
-    std::vector<cv::Vec4i> hier;
-
-    // 当前的位置
-    double dpx = px;
-    double dpy = py;
-    //输入的图像
-    read = imgCallback;
-    cv::cvtColor(read, hsv, CV_BGR2HSV);
-    cv::inRange(hsv, cv::Scalar(0, 0, 0),cv::Scalar(255, 60, 255),mask);
-    cv::bitwise_and(read, read, res, mask=mask);
-    cv::blur(res, res,cv::Size(5, 5));
-    // 去噪点 这里编译不通过 直接代替源码数值
-    kernel = cv::getStructuringElement(0, cv::Size(5, 5));
-    cv::morphologyEx(gray,opened, 3, kernel);
-    cv::morphologyEx(opened,opened, 3, kernel);
-
-    cv::cvtColor(opened, gray, CV_BGR2GRAY);
-    cv::threshold(gray, gray, 10, 255, CV_THRESH_BINARY);
-    
-    cv::findContours(gray,cnts,hier, CV_RETR_TREE,CV_CHAIN_APPROX_SIMPLE);
-    cv::imwrite("/home/uusei/img/0.jpg", gray);
-
-    for( int k = 0; k < cnts.size(); k++)
-    {
-        approxPolyDP(cnts.at(k), approx, arcLength(cnts.at(k), true)*0.02, true);
-        cv::Rect  rect = cv::boundingRect(cnts.at(k));
-        std::cout<<" the quantity of edge "<<approx.size()<<std::endl;
-        std::cout<<"w"<<rect.width<<std::endl;
-        std::cout<<"h"<<rect.height<<std::endl;
-        if ((hier[k][2] == -1)&&(cv::contourArea(cnts.at(k)) >= 2500) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=50)&& (rect.width <= 290)&& (rect.height >=50)&& (rect.height <= 200) && (approx.size() >= 7)&& (approx.size() <= 9)){
-            contours.push_back(cnts.at(k));
-            std::cout<<"get contours"<<std::endl;
-        }
-    }
-    scratch_info.clear();
-    if((contours.size()>0)&&(contours.size()<4)){
-        for(int k = 0; k < contours.size(); k++){
-            cv::Rect  rect = cv::boundingRect(contours.at(k));
-            int r_x = rect.x + rect.width / 2;
-            int r_y = rect.y + rect.height / 2;
-            double para_kx = 7.0 / rect.width;
-            double para_ky = 7.0 / rect.height;
-            std::cout<<"para_kx: "<<para_kx<<std::endl;
-            std::cout<<"para_ky: "<<para_ky<<std::endl;
-            double scratch_x_dist= (r_y - 240) * para_ky * 0.01 * (-1) + dpx;
-            double scratch_y_dist= (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
-            std::cout<<"x"<<scratch_x_dist<<std::endl;
-            std::cout<<"y"<<scratch_y_dist<<std::endl;
-            // 抓取目标的位置 x，y
-            scratch_line.push_back(scratch_x_dist);
-            scratch_line.push_back(scratch_y_dist);
-            scratch_info.push_back(scratch_line);
-            scratch_line.clear();
-        }       
-    }
-}
-void info_img::img_departure(){
-    cv::Mat read,hsv,mask,res,gray,opened,kernel;
-
-    std::vector<std::vector<cv::Point>> contours, cnts;
-    std::vector<cv::Point> approx;
-    std::vector<cv::Vec4i> hier;
-    // 当前的位置
-    double dpx = px;
-    double dpy = py;
-    //输入的图像
-    read = imgCallback;
-    cv::cvtColor(read, hsv, CV_BGR2HSV);
-    cv::inRange(hsv, cv::Scalar(0, 0, 0),cv::Scalar(255, 60, 255),mask);
-    cv::bitwise_and(read, read, res, mask=mask);
-    cv::blur(res, res,cv::Size(5, 5));
-    // 去噪点 这里编译不通过 直接代替源码数值
-    kernel = cv::getStructuringElement(0, cv::Size(5, 5));
-    cv::morphologyEx(gray,opened, 3, kernel);
-    cv::morphologyEx(opened,opened, 3, kernel);
-
-    cv::cvtColor(opened, gray, CV_BGR2GRAY);
-    cv::threshold(gray, gray, 10, 255, CV_THRESH_BINARY);
-    // hier就是反映边缘上下级包含关系
-    cv::findContours(gray,cnts,hier, CV_RETR_TREE,CV_CHAIN_APPROX_SIMPLE);
-    cv::imwrite("/home/uusei/img/0.jpg", gray);
-    for( int k = 0; k < cnts.size(); k++ )
-    {
-        // 读取形状边的数量 一个圆边数量是8 正方形是4
-        approxPolyDP(cnts.at(k), approx, arcLength(cnts.at(k), true)*0.02, true);
-        cv::Rect  rect = cv::boundingRect(cnts.at(k));
-        std::cout<<" the quantity of edge "<<approx.size()<<std::endl;
-        std::cout<<"w"<<rect.width<<std::endl;
-        std::cout<<"h"<<rect.height<<std::endl;
-        // hier[k][2] == -1 表示最内侧边缘
-        if ((hier[k][2] == -1)&&(cv::contourArea(cnts.at(k)) >= 2500) && (cv::contourArea(cnts.at(k)) <= 102400) && (rect.width >=50)&& (rect.width <= 290)&& (rect.height >=50)&& (rect.height <= 200) && (approx.size() >= 7)&& (approx.size() <= 9)){
-            contours.push_back(cnts.at(k));
-            std::cout<<"get contours"<<std::endl;
-        }
-    }
-    for( int k = 0; k < contours.size(); k++ )
-    {
-        cv::Rect  rect = cv::boundingRect(contours.at(k));
-        int r_x = rect.x + rect.width / 2;
-        int r_y = rect.y + rect.height / 2;
-        // 计算相距距离
-        double para_kx = 9.7 / rect.width;
-        double para_ky = 9.7 / rect.height;
-        std::cout<<"para_kx: "<<para_kx<<std::endl;
-        std::cout<<"para_ky: "<<para_ky<<std::endl;
-        double departure_x_dist = (r_y - 240) * para_ky * 0.01 * (-1) + dpx;
-        double departure_y_dist = (r_x - 320) * para_kx * 0.01 * (-1) + dpy;
-        std::cout<<"x"<<departure_x_dist<<std::endl;
-        std::cout<<"y"<<departure_y_dist<<std::endl;
-        // 投放目标的位置 x，y
-        departure_x.push_back(departure_x_dist);
-        departure_y.push_back(departure_y_dist);
-    }
-}
-void info_img::departure_mean(){
-    departure_info.clear();
-    double sumx = std::accumulate(std::begin(departure_x), std::end(departure_x), 0.0);
-    double meanx =  sumx / departure_x.size();
-    double sumy = std::accumulate(std::begin(departure_y), std::end(departure_y), 0.0);
-    double meany =  sumy / departure_y.size();
-    departure_x.clear();
-    departure_y.clear();
-    departure_info.push_back(meanx);
-    departure_info.push_back(meany);
-}
-/*************************************************************************/
 // 避障类 继承坐标
 class info_point:public imup{
     public:
@@ -372,8 +136,6 @@ class info_point:public imup{
         void bar_path();
         // 方向设置
         void direction2point(double target_x,double target_y);
-        // 雷达检测坐标位置
-        void lidar2pos(sensor_msgs::LaserScan laser);
         // 坐标换算
         std::vector<float> convert_pos(double angle,double dist);
 };
@@ -683,40 +445,6 @@ void info_point::direction2point(double target_x,double target_y){
     angle = std::atan2(target_y - py, target_x - px);
     std::cout<<"output angle"<<angle<<std::endl;
 }
-void info_point::lidar2pos(sensor_msgs::LaserScan laser){
-    std::vector<float>  read_laser(laser.ranges);
-    std::vector<float>::iterator itc0, itc1, it0, it1;
-    it0 = read_laser.begin()+270;
-    it1 = read_laser.begin()+179;
-    int bar1 = 270;
-    int bar2 = 179;
-    std::cout<<"comparing"<<std::endl;
-    for(bar1;bar1<359;bar1++){
-        if(((*it0-*(it0 + 1))>0.6) && (*(it0 + 1)>0.4)){
-            std::cout<<"compare fin"<<std::endl;
-            double angle0 = (bar1-359)/180.0*M_PI;
-            double dist0 = *(it0 + 1);
-            std::vector<float> convert0= convert_pos(angle0, dist0);
-            itc0 = convert0.begin();
-            bg.px = *itc0;
-            bg.py = *(itc0+1);
-        }
-        it0++;
-    }
-    for(bar2;bar2<269;bar2++){
-        if(((*(it1)-*(it1 + 1))>0.6) && (*(it1 + 1)>0.5)){
-            std::cout<<"compare fin"<<std::endl;
-            double angle1 = (bar2-359)/180.0*M_PI;
-            double dist1 = *(it1 + 1);
-
-            std::vector<float> convert1=convert_pos(angle1, dist1);
-            itc1=convert1.begin();
-            br.px = *itc1;
-            br.py = *(itc1+1);
-        }
-        it1++;
-    }
-}
 std::vector<float> info_point::convert_pos(double angle,double dist){
     std::vector<float> target;
     std::cout<<"angle:"<<angle<<std::endl;
@@ -737,12 +465,6 @@ std::vector<float> info_point::convert_pos(double angle,double dist){
     描述：ros的订阅回调函数
 */
 /*************************************************************************/
-// 回调函数:读取图片
-void imageCallback(const sensor_msgs::CompressedImage::ConstPtr& msg){
-    // 展示图片读取格式为bgr8 可以不显示，已经传入全局变量
-    cv_bridge::CvImagePtr cv_ptr = cv_bridge::toCvCopy(msg, sensor_msgs::image_encodings::BGR8);
-    ig.imgCallback = cv_ptr->image;
-}
 mavros_msgs::State current_state;
 void state_cb(const mavros_msgs::State::ConstPtr& msg){
     current_state = *msg;
@@ -750,13 +472,7 @@ void state_cb(const mavros_msgs::State::ConstPtr& msg){
 geometry_msgs::PoseStamped current_posi;
 void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     current_posi = *msg;
-    ig.transpoi(current_posi);
     ifp.transpoi(current_posi);
-}
-sensor_msgs::LaserScan laser_call;
-void laser_read(const sensor_msgs::LaserScan::ConstPtr& msg){
-    laser_call = *msg;
-    
 }
 /*************************************************************************/
 /*
@@ -769,21 +485,14 @@ void laser_read(const sensor_msgs::LaserScan::ConstPtr& msg){
 int main(int argc, char **argv)
 {
     int flag=0;
-    int ppi = 0;
-     ros::init(argc, argv, "offb_node");
+    ros::init(argc, argv, "offb_node");
     ros::NodeHandle nh;
     // 订阅话题
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
             ("mavros/state", 10, state_cb);
-    // 订阅图形话题
-    ros::Subscriber image_sub = nh.subscribe<sensor_msgs::CompressedImage>
-        ("/image_raw/compressed", 1, imageCallback);
     // 订阅当前的位置信息
     ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("/mavros/local_position/pose", 10, posi_read);
-
-    ros::Subscriber laser_sub = nh.subscribe<sensor_msgs::LaserScan>
-            ("/lidar2Dscan", 10, laser_read);
     // 发布话题
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
             ("mavros/setpoint_position/local", 10);
@@ -861,97 +570,73 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
+
     // 第二阶段 飞行路径计算与设置
     while(ros::ok()){
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==0)
+        if ( ros::Time::now()-last_request>ros::Duration(2) && flag==0)
         {
             ROS_INFO("pos_init");          
             // raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
-            raw_data.position.z= 0.5;
+            raw_data.position.z= 1.5;
             raw_data.yaw =0;
             last_request = ros::Time::now();
             if(fabs(ifp.yaw - raw_data.yaw)<0.02){
                 ROS_INFO("init successed");
-
                 flag++;
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==1)
+        if ( ros::Time::now()-last_request>ros::Duration(2) && flag==1)
         {
             ROS_INFO("pos_0");           
             // raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
             raw_data.position.x= 1;
             raw_data.position.y= 0;
-            raw_data.position.z= 0.5;
-            raw_data.yaw = 0;
-            ifp.lidar2pos(laser_call);
-            last_request = ros::Time::now();
-            if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
-                ROS_INFO("pos_0 successed");
-                flag++;
-            }
-        }
-        //路径规划
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==2)
-        {
-            ROS_INFO("pos planning"); 
-            if(!ifp.path_point.empty()){
-                ROS_INFO("pos planning fin");
-                flag++;
-            }else{
-                ifp.select_path(ifp.bar_point[0][0]-0.6,ifp.bar_point[0][1]);
-            } 
-            last_request = ros::Time::now();          
-        }
-        if ( ros::Time::now()-last_request>ros::Duration(0.6) && flag==3)
-        {
-            ROS_INFO("pos 2");
-            int pps= ifp.path_point.size();
-            ROS_INFO("x:%f",ifp.path_point[ppi][0]);
-            ROS_INFO("y:%f",ifp.path_point[ppi][1]);
-            raw_data.type_mask = /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= ifp.path_point[ppi][0];
-            raw_data.position.y= ifp.path_point[ppi][1];
             raw_data.position.z= 1.5;
-            raw_data.yaw =0; 
-            last_request = ros::Time::now();
-            if(fabs(ifp.px-raw_data.position.x)<0.04 && fabs(ifp.py-raw_data.position.y)<0.04 && fabs(ifp.yaw-raw_data.yaw)<0.02){
-                ROS_INFO("pos 2 successed once");
-                ppi++;
-            }
-            if(ppi>=pps){
-                ROS_INFO("pos2 planning successed");
-                flag++;
-                ppi = 0;
-                ifp.path_point.clear();
-            }          
-        }
-        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==1)
-        {
-            ROS_INFO("pos_0");           
-            // raw_data.coordinate_frame = 8;  //flu坐标系
-            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
-            raw_data.position.x= 1;
-            raw_data.position.y= 0;
-            raw_data.position.z= 0.5;
             raw_data.yaw = 0;
-            ifp.lidar2pos(laser_call);
             last_request = ros::Time::now();
             if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
                 ROS_INFO("pos_0 successed");
                 flag++;
             }
         }
-        
+        if ( ros::Time::now()-last_request>ros::Duration(2) && flag==2)
+        {
+            ROS_INFO("pos_1");           
+            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.position.x= 1;
+            raw_data.position.y= 0;
+            raw_data.position.z= 0.5;
+            raw_data.yaw = 0;
+            last_request = ros::Time::now();
+            if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
+                ROS_INFO("pos_1 successed");
+                break;
+            }
+        }
         pose2d.x=ifp.px;
         pose2d.y=ifp.py;
         pose2d.theta=ifp.yaw;
         xy_yaw_pub.publish(pose2d);
         raw_local_pub.publish(raw_data);
+        ros::spinOnce();
+        rate.sleep();
+    }
+     while(ros::ok()){
+        if ( ros::Time::now()-last_request>ros::Duration(5) )
+        {
+            offb_set_mode.request.custom_mode = "AUTO.LAND";
+            if( set_mode_client.call(offb_set_mode) &&
+                offb_set_mode.response.mode_sent){
+                ROS_INFO("LAND");
+            }    
+            last_request = ros::Time::now();
+            return 0;
+        }
         ros::spinOnce();
         rate.sleep();
     }
