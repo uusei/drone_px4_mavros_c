@@ -570,8 +570,7 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
-
-    // 第二阶段 飞行路径计算与设置
+    //第二阶段 飞行路径计算与设置
     while(ros::ok()){
         if ( ros::Time::now()-last_request>ros::Duration(2) && flag==0)
         {
@@ -586,6 +585,7 @@ int main(int argc, char **argv)
             if(fabs(ifp.yaw - raw_data.yaw)<0.02){
                 ROS_INFO("init successed");
                 flag++;
+                ifp.direction2point(1,1);
             }
         }
         if ( ros::Time::now()-last_request>ros::Duration(2) && flag==1)
@@ -594,13 +594,14 @@ int main(int argc, char **argv)
             // raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
             raw_data.position.x= 1;
-            raw_data.position.y= 0;
+            raw_data.position.y= 1;
             raw_data.position.z= 1.5;
-            raw_data.yaw = 0;
+            raw_data.yaw = ifp.angle;
             last_request = ros::Time::now();
-            if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
+            if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)&& (fabs(ifp.yaw - raw_data.yaw)<0.02) ){
                 ROS_INFO("pos_0 successed");
                 flag++;
+                ifp.angle = 0;
             }
         }
         if ( ros::Time::now()-last_request>ros::Duration(2) && flag==2)
@@ -609,7 +610,7 @@ int main(int argc, char **argv)
             // raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
             raw_data.position.x= 1;
-            raw_data.position.y= 0;
+            raw_data.position.y= 1;
             raw_data.position.z= 0.5;
             raw_data.yaw = 0;
             last_request = ros::Time::now();

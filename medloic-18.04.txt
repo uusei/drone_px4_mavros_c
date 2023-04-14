@@ -1,0 +1,228 @@
+# 加速器配置
+https://zhuanlan.zhihu.com/p/598337110
+
+
+参考链接：https://www.guyuehome.com/7672
+
+sudo sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
+
+sudo apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654
+### 二选一
+sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-key 421C365BD9FF1F717815A3895523BAEEB01FA116
+
+sudo apt update
+
+sudo apt-get install ros-melodic-desktop
+
+# Source ROS
+echo "source /opt/ros/melodic/setup.bash" >> ~/.bashrc
+
+source ~/.bashrc
+
+# gazebo9
+sudo apt install ros-melodic-gazebo9*
+
+## https://www.ipaddress.com/site/raw.githubusercontent.com
+
+185.199.110.133 raw.githubusercontent.com
+140.82.113.4 github.com
+##
+
+sudo apt-get update && sudo apt-get install python-rosdep
+sudo rosdep init
+rosdep update
+
+# 安装catkin
+sudo apt-get install ros-melodic-catkin python-catkin-tools
+# 安装mavros
+sudo apt install ros-melodic-mavros ros-melodic-mavros-extras
+# 以下部分为克隆项目
+wget https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh
+
+chmod +x install_geographiclib_datasets.sh
+
+sudo ./install_geographiclib_datasets.sh
+# 安装固件
+wget https://raw.githubusercontent.com/PX4/Firmware/master/Tools/setup/ubuntu.sh
+
+wget https://raw.githubusercontent.com/PX4/Firmware/master/Tools/setup/requirements.txt
+
+source ubuntu.sh 注意这一步要成功为止 
+# kill pid 6963
+
+#克隆仿真建模
+git clone https://gitee.com/bingobinlw/volans
+
+#进入项目目录
+cd catkin_ws
+git clone https://github.com/PX4/Firmware 
+
+# 硬件加速设置 需要提前设置防止gazebo 卡顿
+echo " export SVGA_VGPU10=0" >> ~/.bashrc
+source ~/.bashrc
+
+#克隆成功后编译
+cd Firmware
+git submodule update --init --recursive
+git checkout v1.11.1
+make distclean
+
+#重要 可以先断网后运行 这是启动gazebo的方式，以后都会启动
+make px4_sitl_default gazebo 
+
+# 安装一些库 这里可以先安装完再启动gazebo
+sudo apt-get install ros-melodic-ddynamic-reconfigure
+sudo apt-get install ros-melodic-ar-track-alvar*
+sudo apt-get install ros-melodic-velodyne-gazebo-plugins
+sudo apt-get install ros-melodic-moveit
+sudo apt-get install ros-melodic-nav-core
+sudo apt-get install ros-melodic-move-base-msgs
+sudo apt-get install ros-melodic-ompl*
+sudo apt install ros-melodic-ompl
+sudo apt-get install ros-melodic-octomap
+
+pip3 install numpy 
+pip3 install  pyplusplus 
+pip3 install  pygccxml
+
+## ompl 路径规划安装指南
+sudo apt-get install castxml
+
+@ 克隆基本库libccd
+git clone https://github.com/danfis/libccd.git
+cd libccd
+cmake .
+make
+sudo make install
+
+克隆基本库fcl
+git clone https://github.com/flexible-collision-library/fcl.git -b fcl-0.5
+cd fcl
+cmake .
+sudo -E make install
+
+sudo apt-get install rabbitmq-server
+
+pip3 install PyQt5 numpy pyplusplus pygccxml flask celery PyOpenGL PyOpenGL-accelerate
+
+chmod u+x install-ompl-ubuntu.sh
+修改sh文件内容
+找到 wget -O -https://github.com/ompl/${OMPL}/releases/download/1.5.2/${OMPL}-1.5.2-Source.tar.gz | tar zxf -
+修改为 tar zxf ${OMPL}-1.5.1-Source.tar.gz
+./install-ompl-ubuntu.sh --app
+
+sudo cp -a /opt/ros/melodic/include/ompl-1.4/ompl /opt/ros/melodic/include/
+std_msgsConfig.cmake         std_msgsConfig-version.cmake  /opt/ros/melodic/share/std_msgs/
+
+
+#编译
+cd volans
+catkin config --extend /opt/ros/${ROS_DISTRO} --cmake-args -DCMAKE_BUILD_TYPE=Release
+catkin build
+
+# 运行环境
+source source_enviroment.sh
+
+@
+# 创建一个编译文件夹
+mkdir -p ~/catkin_ws/src
+cd ~/catkin_ws
+catkin init
+wstool init src
+
+
+## Install MAVLink
+###we use the Kinetic reference for all ROS distros as it's not distro-specific and up to date
+rosinstall_generator --rosdistro melodic mavlink | tee /tmp/mavros.rosinstall
+
+## Build MAVROS
+### Get source (upstream - released)
+rosinstall_generator --upstream mavros | tee -a /tmp/mavros.rosinstall
+
+### Setup workspace & install deps
+wstool merge -t src /tmp/mavros.rosinstall
+wstool update -t src
+
+rosdep install --from-paths src --ignore-src -y
+
+wget https://raw.githubusercontent.com/mavlink/mavros/master/mavros/scripts/install_geographiclib_datasets.sh
+
+chmod 777 ./install_geographiclib_datasets.sh
+
+catkin build
+
+
+# install cartographer\
+wstool merge -t src https://raw.githubusercontent.com/googlecartographer/cartographer_ros/master/cartographer_ros.rosinstall
+
+wstool update -t src
+
+
+
+
+export ROS_PACKAGE_PATH=$ROS_PACKAGE_PATH:~/PX4_Autopilot
+export ROS_PACKAGE_PATH=$ROS_PACKAGE_PATH:~/PX4_Autopilot/Tools/sitl_gazebo
+
+mkdir build
+cd build
+cmake ../ -DBUILD_EXAMPLES=true
+make
+sudo make install 
+
+# source 空间
+echo "source ~/catkin_ws/devel/setup.bash ">> ~/.bashrc
+source ~/catkin_ws/devel/setup.bash
+
+# px4 sitl 启动 编译
+make px4_sitl gazebo
+make px4_sitl gazebo_iris_rplidar
+ 	#px4的直接启动
+	roslaunch px4 posix_sitl.launch
+	roslaunch simulation rtabmap_stereo_mapping_demo_px4.launch
+	roslaunch simulation cartographer2Dlidar_location_demo_px4.launch
+
+# ros 启动
+rosrun flyoff_pkg flyoff_node
+rosrun flyoff_pkg cv_drone_node
+rosrun flyoff_pkg demo_v_node
+rosrun flyoff_pkg demo_h_node
+
+roslaunch mavros px4.launch fcu_url:="udp://:14540@127.0.0.1:14557"
+
+cd src
+catkin_create_pkg flyoff_pkg roscpp std_msgs geometry_msgs mavros_msgs
+# cmake 添加的内容
+add_executable(flyoff_node src/flyoff_node.cpp)
+target_link_libraries(flyoff_node ${catkin_LIBRARIES})
+
+https://github.com/googlecartographer/cartographer.git  2.0.0
+https://github.com/googlecartographer/cartographer_ros.git 
+https://github.com/ceres-solver/ceres-solver.git 2.0.0
+https://github.com/protocolbuffers/protobuf.git v3.11.0
+
+sudo apt-get update
+sudo apt-get install -y google-mock libboost-all-dev  libeigen3-dev libgflags-dev libgoogle-glog-dev liblua5.2-dev libprotobuf-dev  libsuitesparse-dev libwebp-dev ninja-build protobuf-compiler python-sphinx  ros-melodic-tf2-eigen libatlas-base-dev libsuitesparse-dev liblapack-dev libcairo2-dev git g++ cma
+
+
+rostopic info
+rostopic list
+rosmsg show
+
+#px4仿真配置
+https://zhuanlan.zhihu.com/p/451664003
+#ros 图像转换
+https://blog.csdn.net/HHB791829200/article/details/128395768
+#rviz 操作
+https://anlper.cn/2021/10/23/PX4%E6%97%A0%E4%BA%BA%E6%9C%BA-Gazebo%E4%BB%BF%E7%9C%9F%E5%AE%9E%E7%8E%B0%E7%A7%BB%E5%8A%A8%E7%89%A9%E4%BD%93%E7%9A%84%E8%B7%9F%E8%B8%AA/
+
+PID配置：
+attitude:11.5
+velocity: H:5 0.4 0.1 v: 11.5 1.3 0
+position: 1.4
+
+flatpak run com.obsproject.Studio
+
+dia # 思维导图
+
+https://sub.kekecloud.net/link/4IEbe0vy5twjKzdl?clash=1
+ubuntu magic: ctrl+alt+sysrq+（r+e+i+s+u+b）
