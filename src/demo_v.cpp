@@ -10,6 +10,7 @@
 #include <mavros_msgs/PositionTarget.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
+#include <mavros_msgs/RCOut.h>
 #include <image_transport/image_transport.h>
 #include "sensor_msgs/image_encodings.h"
 // C++ 标准库
@@ -474,6 +475,10 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     current_posi = *msg;
     ifp.transpoi(current_posi);
 }
+mavros_msgs::RCOut rc_info;
+void rc_read(const mavros_msgs::RCOut::ConstPtr& msg){
+    rc_info = *msg;
+}
 /*************************************************************************/
 /*
     功能区：主函数
@@ -493,6 +498,10 @@ int main(int argc, char **argv)
     // 订阅当前的位置信息
     ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("/mavros/local_position/pose", 10, posi_read);
+    // 订阅遥控通道
+    ros::Subscriber rcout_sub = nh.subscribe<mavros_msgs::RCOut>
+            ("/mavros/rc/out", 10, rc_read);
+
     // 发布话题
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
             ("mavros/setpoint_position/local", 10);
@@ -542,7 +551,8 @@ int main(int argc, char **argv)
     while(ros::ok()){
         //判断一下现在模式是否正确解锁
         if( current_state.mode != "OFFBOARD" &&
-              (ros::Time::now() - last_request > ros::Duration(1.0))){
+              (ros::Time::now() - last_request > ros::Duration(1.0))
+              && rc_info.channels[4] > 1600){
             if( set_mode_client.call(offb_set_mode) &&
                 offb_set_mode.response.mode_sent){
                 ROS_INFO("Offboard enabled");
@@ -552,20 +562,22 @@ int main(int argc, char **argv)
         else
         {
             if( !current_state.armed &&
-                (ros::Time::now() - last_request > ros::Duration(1.0))){
+                (ros::Time::now() - last_request > ros::Duration(1.0))
+                && rc_info.channels[4] > 1600){
                 if( arming_client.call(arm_cmd) && arm_cmd.response.success)
                 {
-                     ROS_INFO("Vehicle armed");
+                    ROS_INFO("Vehicle armed");
                 }
                 last_request = ros::Time::now();
             }
         }
+        ROS_INFO("rc5_out:%d ", rc_info.channels[4]);
         pose2d.x=ifp.px;
         pose2d.y=ifp.py;
         pose2d.theta=ifp.yaw;
         xy_yaw_pub.publish(pose2d);
         local_pos_pub.publish(pose);
-        if (ros::Time::now()-last_request>ros::Duration(8))
+        if (ros::Time::now()-last_request>ros::Duration(8)&& current_state.armed)
             break;
         ros::spinOnce();
         rate.sleep();
