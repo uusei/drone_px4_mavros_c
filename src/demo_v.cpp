@@ -10,9 +10,8 @@
 #include <mavros_msgs/PositionTarget.h>
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
-#include <mavros_msgs/RCOut.h>
-#include <image_transport/image_transport.h>
-#include "sensor_msgs/image_encodings.h"
+#include <mavros_msgs/RCIn.h>
+
 // C++ 标准库
 #include <string> 
 #include <iostream>
@@ -475,8 +474,8 @@ void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
     current_posi = *msg;
     ifp.transpoi(current_posi);
 }
-mavros_msgs::RCOut rc_info;
-void rc_read(const mavros_msgs::RCOut::ConstPtr& msg){
+mavros_msgs::RCIn rc_info;
+void rc_read(const mavros_msgs::RCIn::ConstPtr& msg){
     rc_info = *msg;
 }
 /*************************************************************************/
@@ -499,8 +498,8 @@ int main(int argc, char **argv)
     ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
             ("/mavros/local_position/pose", 10, posi_read);
     // 订阅遥控通道
-    ros::Subscriber rcout_sub = nh.subscribe<mavros_msgs::RCOut>
-            ("/mavros/rc/out", 10, rc_read);
+    ros::Subscriber rcout_sub = nh.subscribe<mavros_msgs::RCIn>
+            ("/mavros/rc/in", 10, rc_read);
 
     // 发布话题
     ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
@@ -533,7 +532,7 @@ int main(int argc, char **argv)
     pose.pose.position.z = 1.5;
     
     //必须要有设定点才能飞
-    for(int i = 2; ros::ok() && i > 0; --i){
+    for(int i = 100; ros::ok() && i > 0; --i){
         local_pos_pub.publish(pose);
         ros::spinOnce();
         rate.sleep();
