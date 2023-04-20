@@ -1,9 +1,13 @@
 <launch> 
-  <arg name="fcu_url" default="/dev/ttyUSB0:921600" />
+  <arg name="fcu_url" default="/dev/ttyUSB0:115200" />
   <!-- 启动mavros -->
   <include file="$(find mavros)/launch/px4.launch">
     <arg name="fcu_url" value="$(arg fcu_url)" />
   </include>
+  <!-- 启动t265 -->
+  <include file="$(find px4_realsense_bridge)/launch/bridge.launch">
+  </include>
+  
   <!-- 启动节点 -->
   <node name="demo_h" pkg="flyoff_pkg" type="demo_h_node" output="screen">
   </node>
