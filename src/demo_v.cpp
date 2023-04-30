@@ -576,7 +576,7 @@ int main(int argc, char **argv)
         pose2d.theta=ifp.yaw;
         xy_yaw_pub.publish(pose2d);
         local_pos_pub.publish(pose);
-        if (ros::Time::now()-last_request>ros::Duration(8)&& current_state.armed)
+        if (ros::Time::now()-last_request>ros::Duration(4)&& current_state.armed)
             break;
         ros::spinOnce();
         rate.sleep();
@@ -588,13 +588,13 @@ int main(int argc, char **argv)
         {
             ROS_INFO("pos_init");          
             // raw_data.coordinate_frame = 8;  //flu坐标系
-            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
             raw_data.position.z= 1.5;
             raw_data.yaw =0;
             last_request = ros::Time::now();
-            if(fabs(ifp.yaw - raw_data.yaw)<0.02){
+            if((fabs(ifp.yaw - raw_data.yaw)<0.02)&&(fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
                 ROS_INFO("init successed");
                 flag++;
             }
@@ -603,7 +603,7 @@ int main(int argc, char **argv)
         {
             ROS_INFO("pos_0");           
             // raw_data.coordinate_frame = 8;  //flu坐标系
-            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
             raw_data.position.z= 0.5;
@@ -618,7 +618,7 @@ int main(int argc, char **argv)
         {
             ROS_INFO("pos_1");           
             // raw_data.coordinate_frame = 8;  //flu坐标系
-            raw_data.type_mask =  /* 1 +2 + 4 + 8 +16 + 32 + 64 + 128 + 256 + */512  /*+1024*/ + 2048;
+            raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
             raw_data.position.z= 0.5;
