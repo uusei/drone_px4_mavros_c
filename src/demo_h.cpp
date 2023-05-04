@@ -647,6 +647,20 @@ int main(int argc, char **argv)
                 break;
             }
         }
+        // 退出控制
+        if ( ros::Time::now()-last_request>ros::Duration(2) && rc_info.channels[4] < 1600)
+        {
+            ROS_INFO("stop now");           
+            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
+            raw_data.position.z= -0.5;
+            raw_data.yaw = 0;
+            last_request = ros::Time::now();
+            if(fabs(ifp.pz - raw_data.position.z)<0.03){
+                ROS_INFO("stop successed");
+                return 0;
+            }
+        }
         pose2d.x=ifp.px;
         pose2d.y=ifp.py;
         pose2d.theta=ifp.yaw;
@@ -655,16 +669,19 @@ int main(int argc, char **argv)
         ros::spinOnce();
         rate.sleep();
     }
-     while(ros::ok()){
-        if ( ros::Time::now()-last_request>ros::Duration(5) )
+    while(ros::ok()){
+        if (ros::Time::now()-last_request>ros::Duration(2))
         {
-            offb_set_mode.request.custom_mode = "AUTO.LAND";
-            if( set_mode_client.call(offb_set_mode) &&
-                offb_set_mode.response.mode_sent){
-                ROS_INFO("LAND");
-            }
+            ROS_INFO("LAND_ST");           
+            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
+            raw_data.position.z= -0.5;
+            raw_data.yaw = 0;
             last_request = ros::Time::now();
-            return 0;
+            if(!current_state.armed){
+                ROS_INFO("LAND_ST successed");
+                return 0;
+            }
         }
         ros::spinOnce();
         rate.sleep();
