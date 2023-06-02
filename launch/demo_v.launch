@@ -1,5 +1,5 @@
 <launch> 
-  <arg name="fcu_url" default="/dev/ttyUSB0:115200" />
+  <arg name="fcu_url" default="/dev/ttyAMA0:921600" />
   <!-- 启动mavros -->
   <include file="$(find mavros)/launch/px4.launch">
     <arg name="fcu_url" value="$(arg fcu_url)"/>

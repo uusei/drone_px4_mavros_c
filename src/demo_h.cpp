@@ -11,7 +11,7 @@
 #include <mavros_msgs/SetMode.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/RCIn.h>
-
+#include<nav_msgs/Odometry.h>
 // C++ 标准库
 #include <string> 
 #include <iostream>
@@ -50,10 +50,10 @@ class imup{
         double px, py, pz, roll, pitch, yaw;
         //  内联函数
         // 4元数坐标转换
-        void transpoi(geometry_msgs::PoseStamped current_posi);
+        void transpoi(nav_msgs::Odometry current_posi);
 };
 // 四元素坐标轴转换
-void imup::transpoi(geometry_msgs::PoseStamped current_posi){
+void imup::transpoi(nav_msgs::Odometry current_posi){
      /*
     坐标位置
     current_posi.pose.position.x
@@ -65,10 +65,10 @@ void imup::transpoi(geometry_msgs::PoseStamped current_posi){
     current_posi.pose.orientation.z
     current_posi.pose.orientation.w
     */
-    double ox=current_posi.pose.orientation.x;
-    double oy =current_posi.pose.orientation.y;
-    double oz=current_posi.pose.orientation.z;
-    double ow=current_posi.pose.orientation.w;
+    double ox=current_posi.pose.pose.orientation.x;
+    double oy =current_posi.pose.pose.orientation.y;
+    double oz=current_posi.pose.pose.orientation.z;
+    double ow=current_posi.pose.pose.orientation.w;
     // roll (x-axis rotation)
     double sinr_cosp = 2 * (ow * ox + oy * oz);
     double cosr_cosp = 1 - 2 * (ox * ox + oy * oy);
@@ -86,9 +86,9 @@ void imup::transpoi(geometry_msgs::PoseStamped current_posi){
     yaw = std::atan2(siny_cosp, cosy_cosp);
 
     // 6轴小数保留
-    px =  ceil(current_posi.pose.position.x * 10000)/10000;
-    py =  ceil(current_posi.pose.position.y * 10000)/10000;
-    pz =  ceil(current_posi.pose.position.z * 10000)/10000;
+    px =  ceil(current_posi.pose.pose.position.x * 10000)/10000;
+    py =  ceil(current_posi.pose.pose.position.y * 10000)/10000;
+    pz =  ceil(current_posi.pose.pose.position.z * 10000)/10000;
 }
 /*************************************************************************/
 // 避障类 继承坐标
@@ -470,8 +470,8 @@ mavros_msgs::State current_state;
 void state_cb(const mavros_msgs::State::ConstPtr& msg){
     current_state = *msg;
 }
-geometry_msgs::PoseStamped current_posi;
-void posi_read(const geometry_msgs::PoseStamped::ConstPtr& msg){
+nav_msgs::Odometry current_posi;
+void posi_read(const nav_msgs::Odometry::ConstPtr& msg){
     current_posi = *msg;
     ifp.transpoi(current_posi);
 }
@@ -497,21 +497,21 @@ int main(int argc, char **argv)
     ros::Subscriber state_sub = nh.subscribe<mavros_msgs::State>
             ("mavros/state", 10, state_cb);
     // 订阅当前的位置信息
-    ros::Subscriber position_sub = nh.subscribe<geometry_msgs::PoseStamped>
-            ("/mavros/local_position/pose", 10, posi_read);
+    ros::Subscriber position_sub = nh.subscribe<nav_msgs::Odometry>
+            ("/camera/odom/sample", 10, posi_read);
     // 订阅遥控通道
     ros::Subscriber rcout_sub = nh.subscribe<mavros_msgs::RCIn>
             ("/mavros/rc/in", 10, rc_read);
 
     // 发布话题
-    ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
-            ("mavros/setpoint_position/local", 10);
+    // ros::Publisher local_pos_pub = nh.advertise<geometry_msgs::PoseStamped>
+    //         ("mavros/setpoint_position/local", 10);
     // 新定义的发布
     ros::Publisher raw_local_pub = nh.advertise<mavros_msgs::PositionTarget>
             ("/mavros/setpoint_raw/local", 10);
     //发布 x y yaw 
     ros::Publisher xy_yaw_pub = nh.advertise<geometry_msgs::Pose2D>
-            ("/mavros/flyoff/local", 10);
+            ("/flyoff/local", 10);
     ros::ServiceClient arming_client = nh.serviceClient<mavros_msgs::CommandBool>
             ("mavros/cmd/arming");
     ros::ServiceClient set_mode_client = nh.serviceClient<mavros_msgs::SetMode>
@@ -528,14 +528,15 @@ int main(int argc, char **argv)
     
     mavros_msgs::PositionTarget raw_data;
 
-    geometry_msgs::PoseStamped pose;
-    pose.pose.position.x = 0;
-    pose.pose.position.y = 0;
-    pose.pose.position.z = 1.5;
+    raw_data.coordinate_frame = 8;  //flu坐标系
+    raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  +1024 + 2048;
+    raw_data.position.x= 0;
+    raw_data.position.y= 0;
+    raw_data.position.z= 1;
     
     //必须要有设定点才能飞
     for(int i = 100; ros::ok() && i > 0; --i){
-        local_pos_pub.publish(pose);
+        raw_local_pub.publish(raw_data);
         ros::spinOnce();
         rate.sleep();
     }
@@ -577,7 +578,7 @@ int main(int argc, char **argv)
         pose2d.y=ifp.py;
         pose2d.theta=ifp.yaw;
         xy_yaw_pub.publish(pose2d);
-        local_pos_pub.publish(pose);
+        raw_local_pub.publish(raw_data);
         if (ros::Time::now()-last_request>ros::Duration(4)&& current_state.armed)
             break;
         ros::spinOnce();
@@ -585,14 +586,14 @@ int main(int argc, char **argv)
     }
     //第二阶段 飞行路径计算与设置
     while(ros::ok()){
-        if ( ros::Time::now()-last_request>ros::Duration(2) && flag==0)
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==0)
         {
             ROS_INFO("pos_init");          
-            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
-            raw_data.position.z= 1.5;
+            raw_data.position.z= 1;
             raw_data.yaw =0;
             last_request = ros::Time::now();
             if((fabs(ifp.yaw - raw_data.yaw)<0.02)&&(fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)){
@@ -601,14 +602,14 @@ int main(int argc, char **argv)
                 ifp.direction2point(1,1);
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(2) && flag==1)
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==1)
         {
             ROS_INFO("pos_0");           
-            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
             raw_data.position.x= 0;
             raw_data.position.y= 0;
-            raw_data.position.z= 1.5;
+            raw_data.position.z= 1;
             raw_data.yaw = ifp.angle;
             last_request = ros::Time::now();
             if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)&& (fabs(ifp.yaw - raw_data.yaw)<0.02) ){
@@ -616,14 +617,14 @@ int main(int argc, char **argv)
                 flag++;
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(2) && flag==2)
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==2)
         {
             ROS_INFO("pos_1");           
-            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
             raw_data.position.x= 1;
             raw_data.position.y= 1;
-            raw_data.position.z= 1.5;
+            raw_data.position.z= 1;
             raw_data.yaw = ifp.angle;
             last_request = ros::Time::now();
             if((fabs(ifp.px - raw_data.position.x)<0.02) && (fabs(ifp.py - raw_data.position.y)<0.02) && (fabs(ifp.pz - raw_data.position.z)<0.03)&& (fabs(ifp.yaw - raw_data.yaw)<0.02)){
@@ -632,10 +633,10 @@ int main(int argc, char **argv)
                 break;
             }
         }
-        if ( ros::Time::now()-last_request>ros::Duration(2) && flag==3)
+        if ( ros::Time::now()-last_request>ros::Duration(1) && flag==3)
         {
             ROS_INFO("pos_2");           
-            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
             raw_data.position.x= 1;
             raw_data.position.y= 1;
@@ -648,17 +649,17 @@ int main(int argc, char **argv)
             }
         }
         // 退出控制
-        if ( ros::Time::now()-last_request>ros::Duration(2) && rc_info.channels[4] < 1600)
+        if (rc_info.channels[4] < 1600)
         {
             ROS_INFO("stop now");           
-            // raw_data.coordinate_frame = 8;  //flu坐标系
+            raw_data.coordinate_frame = 8;  //flu坐标系
             raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
-            raw_data.position.z= -0.5;
+            raw_data.position.z= 0;
             raw_data.yaw = 0;
             last_request = ros::Time::now();
-            if(fabs(ifp.pz - raw_data.position.z)<0.03){
+            if(ifp.pz<0.1){
                 ROS_INFO("stop successed");
-                return 0;
+                break;
             }
         }
         pose2d.x=ifp.px;
@@ -670,19 +671,20 @@ int main(int argc, char **argv)
         rate.sleep();
     }
     while(ros::ok()){
-        if (ros::Time::now()-last_request>ros::Duration(2))
+         if ( ros::Time::now()-last_request>ros::Duration(5) )
         {
-            ROS_INFO("LAND_ST");           
-            // raw_data.coordinate_frame = 8;  //flu坐标系
-            raw_data.type_mask =  /* 1 +2 + 4 +*/ 8 +16 + 32 + 64 + 128 + 256 + 512  /*+1024*/ + 2048;
-            raw_data.position.z= -0.5;
-            raw_data.yaw = 0;
+            offb_set_mode.request.custom_mode = "AUTO.LAND";
+            if( set_mode_client.call(offb_set_mode) &&
+                offb_set_mode.response.mode_sent){
+                ROS_INFO("LAND");
+            }    
             last_request = ros::Time::now();
             if(!current_state.armed){
                 ROS_INFO("LAND_ST successed");
                 return 0;
             }
         }
+        raw_local_pub.publish(raw_data);
         ros::spinOnce();
         rate.sleep();
     }
