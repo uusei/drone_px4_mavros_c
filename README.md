@@ -31,7 +31,10 @@
 	rosrun flyoff_pkg flyoff_node
 
 # 使用一个遥控开关去开启关闭程序运行
-目前方案是使用ros bridge
+目前方案是使用ros channel5实现
+
+# 如何远程连接机载电脑远程查看ros节点
+见 <a>medloic-18.04.txt</a>
 
 
 ## 	ros的环境配置对初学者较为困难，但大部分问题都集中在网络上，解决过程中其实也能提升对于ubuntu这类linux系统的理解，对于px4无人机，从仿真到实践，主要经历几个阶段：
